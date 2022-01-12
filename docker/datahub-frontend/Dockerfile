@@ -18,7 +18,7 @@ RUN apk --no-cache --update-cache --available upgrade \
 ARG ENABLE_EMBER="false"
 ARG USE_SYSTEM_NODE="true"
 ENV CI=true
-ENV GRADLE_OPTS="-Xms256m -Xmx512m"
+ENV GRADLE_OPTS="-Xms4G -Xmx4G"
 COPY . datahub-src
 RUN cd datahub-src && ./gradlew :datahub-frontend:dist -PenableEmber=${ENABLE_EMBER} -PuseSystemNode=${USE_SYSTEM_NODE} -x test -x yarnTest -x yarnLint \
     && cp datahub-frontend/build/distributions/datahub-frontend.zip ../datahub-frontend.zip \

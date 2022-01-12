@@ -1,14 +1,31 @@
 package controllers;
 
 import client.AuthServiceClient;
+import com.datahub.authentication.Authentication;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.linkedin.common.AuditStamp;
 import com.linkedin.common.urn.CorpuserUrn;
 import com.linkedin.common.urn.Urn;
+import com.linkedin.entity.Entity;
+import com.linkedin.entity.client.EntityClient;
+import com.linkedin.events.metadata.ChangeType;
+import com.linkedin.identity.CorpUserInfo;
+import com.linkedin.identity.CorpUserStatus;
+import com.linkedin.metadata.Constants;
+import com.linkedin.metadata.aspect.CorpUserAspect;
+import com.linkedin.metadata.aspect.CorpUserAspectArray;
+import com.linkedin.metadata.snapshot.CorpUserSnapshot;
+import com.linkedin.metadata.snapshot.Snapshot;
+import com.linkedin.metadata.utils.GenericAspectUtils;
+import com.linkedin.mxe.MetadataChangeProposal;
+import com.linkedin.r2.RemoteInvocationException;
 import com.typesafe.config.Config;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.Optional;
+
+import lombok.SneakyThrows;
 import org.apache.commons.lang3.StringUtils;
 import org.pac4j.core.client.Client;
 import org.pac4j.core.context.session.SessionStore;
@@ -17,6 +34,7 @@ import org.pac4j.play.PlayWebContext;
 import org.pac4j.play.http.PlayHttpActionAdapter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import play.http.HttpEntity;
 import play.libs.Json;
 import play.mvc.Controller;
 import play.mvc.Http;
@@ -57,6 +75,12 @@ public class AuthenticationController extends Controller {
     AuthServiceClient _authClient;
 
     @Inject
+    private EntityClient entityClient;
+
+    @Inject
+    private Authentication systemAuthentication;
+
+    @Inject
     public AuthenticationController(@Nonnull Config configs) {
         _configs = configs;
         _jaasConfigs = new JAASConfigs(configs);
@@ -80,24 +104,32 @@ public class AuthenticationController extends Controller {
             return redirect(redirectPath);
         }
 
-        // 1. If SSO is enabled, redirect to IdP if not authenticated.
+        // 1. Use mail id in header if the user is already authenticated in
+        // engweb.
+        Optional<String> email = ctx().request().header("X-User-Email");
+        if (email.isPresent()) {
+            CorpuserUrn userUrn = new CorpuserUrn(email.get());
+            tryProvision(userUrn);
+            final String accessToken = _authClient.generateSessionTokenForUser(userUrn.getId());
+            session().put(ACCESS_TOKEN, accessToken);
+            session().put(ACTOR, userUrn.toString());
+            return redirect(redirectPath)
+                    .withCookies(createActorCookie(userUrn.toString(), _configs.hasPath(SESSION_TTL_CONFIG_PATH)
+                            ? _configs.getInt(SESSION_TTL_CONFIG_PATH)
+                            : DEFAULT_SESSION_TTL_HOURS));
+        }
+
+        // 2. If SSO is enabled, redirect to IdP if not authenticated.
         if (_ssoManager.isSsoEnabled()) {
             return redirectToIdentityProvider();
         }
 
-        // 2. If JAAS auth is enabled, fallback to it
+        // 3. If JAAS auth is enabled, fallback to it
         if (_jaasConfigs.isJAASEnabled()) {
             return redirect(LOGIN_ROUTE + String.format("?%s=%s", AUTH_REDIRECT_URI_PARAM,  encodeRedirectUri(redirectPath)));
         }
 
-        // 3. If no auth enabled, fallback to using default user account & redirect.
-        // Generate GMS session token, TODO:
-        final String accessToken = _authClient.generateSessionTokenForUser(DEFAULT_ACTOR_URN.getId());
-        session().put(ACCESS_TOKEN, accessToken);
-        session().put(ACTOR, DEFAULT_ACTOR_URN.toString());
-        return redirect(redirectPath).withCookies(createActorCookie(DEFAULT_ACTOR_URN.toString(), _configs.hasPath(SESSION_TTL_CONFIG_PATH)
-                ? _configs.getInt(SESSION_TTL_CONFIG_PATH)
-                : DEFAULT_SESSION_TTL_HOURS));
+        return new Result(Http.Status.FORBIDDEN);
     }
 
     /**
@@ -158,5 +190,40 @@ public class AuthenticationController extends Controller {
         } catch (UnsupportedEncodingException e) {
             throw new RuntimeException(String.format("Failed to encode redirect URI %s", redirectUri), e);
         }
+    }
+
+    /**
+     * tryProvision provisions the given user if it is not already available,
+     * and updates its last accessed timestamp.
+     */
+    @SneakyThrows
+    private void tryProvision(CorpuserUrn urn) {
+        CorpUserSnapshot corpUserSnapshot = new CorpUserSnapshot();
+        corpUserSnapshot.setUrn(urn);
+        CorpUserInfo corpUserInfo = new CorpUserInfo();
+        corpUserInfo.setActive(true);
+        corpUserInfo.setEmail(urn.getUsernameEntity());
+        CorpUserAspectArray aspects = new CorpUserAspectArray();
+        aspects.add(CorpUserAspect.create(corpUserInfo));
+        corpUserSnapshot.setAspects(aspects);
+        Entity corpUser = entityClient.get(corpUserSnapshot.getUrn(), systemAuthentication);
+        CorpUserSnapshot existingUserSnapshot = corpUser.getValue().getCorpUserSnapshot();
+        if (existingUserSnapshot.getAspects().size() <= 1) {
+            Entity newEntity = new Entity();
+            newEntity.setValue(Snapshot.create(corpUserSnapshot));
+            entityClient.update(newEntity, systemAuthentication);
+        }
+        MetadataChangeProposal proposal = new MetadataChangeProposal();
+        proposal.setEntityUrn(urn);
+        proposal.setEntityType(Constants.CORP_USER_ENTITY_NAME);
+        proposal.setAspectName(Constants.CORP_USER_STATUS_ASPECT_NAME);
+        CorpUserStatus status = new CorpUserStatus()
+                .setStatus(Constants.CORP_USER_STATUS_ACTIVE)
+                .setLastModified(new AuditStamp()
+                        .setActor(Urn.createFromString(Constants.SYSTEM_ACTOR))
+                        .setTime(System.currentTimeMillis()));
+        proposal.setAspect(GenericAspectUtils.serializeAspect(status));
+        proposal.setChangeType(ChangeType.UPSERT);
+        entityClient.ingestProposal(proposal, systemAuthentication);
     }
 }
