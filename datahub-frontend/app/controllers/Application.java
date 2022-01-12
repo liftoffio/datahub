@@ -42,6 +42,8 @@ public class Application extends Controller {
 
   private final Config _config;
   private final StandaloneWSClient _ws;
+  @Inject
+  private  AuthenticationController authenticationController;
 
   @Inject
   public Application(@Nonnull Config config) {
@@ -76,7 +78,13 @@ public class Application extends Controller {
    */
   @Nonnull
   public Result index(@Nullable String path) {
-    return serveAsset("");
+    if("login".equalsIgnoreCase(path)) {
+      return serveAsset(path);
+    }
+    if(hasValidSessionCookie(ctx())) {
+      return serveAsset("");
+    }
+    return authenticationController.authenticate();
   }
 
   /**
