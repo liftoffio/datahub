@@ -39,7 +39,7 @@ const ThinDivider = styled(Divider)`
 `;
 
 type AdditionalProperties = {
-    path?: Entity[];
+    degree?: number;
 };
 
 type Props = {
@@ -78,6 +78,8 @@ export const EntityNameList = ({ additionalPropertiesList, entities, onClick }: 
                 const displayName = entityRegistry.getDisplayName(entity.type, entity);
                 const url = entityRegistry.getEntityUrl(entity.type, entity.urn);
                 const fallbackIcon = entityRegistry.getIcon(entity.type, 18, IconStyleType.ACCENT);
+                const subType = genericProps?.subTypes?.typeNames?.length && genericProps?.subTypes?.typeNames[0];
+                const entityCount = genericProps?.entityCount;
                 return (
                     <>
                         <ListItem>
@@ -87,13 +89,14 @@ export const EntityNameList = ({ additionalPropertiesList, entities, onClick }: 
                                 logoComponent={fallbackIcon}
                                 url={url}
                                 platform={platformName || undefined}
-                                type={entityTypeName}
+                                type={subType || entityTypeName}
                                 titleSizePx={14}
                                 tags={genericProps?.globalTags || undefined}
                                 glossaryTerms={genericProps?.glossaryTerms || undefined}
                                 domain={genericProps?.domain}
                                 onClick={() => onClick?.(index)}
-                                path={additionalProperties?.path}
+                                entityCount={entityCount}
+                                degree={additionalProperties?.degree}
                             />
                         </ListItem>
                         <ThinDivider />

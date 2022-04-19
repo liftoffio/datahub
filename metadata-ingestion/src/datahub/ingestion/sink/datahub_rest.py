@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 from typing import Union, cast
 
+from datahub.cli.cli_utils import set_env_variables_override_config
 from datahub.configuration.common import OperationalError
 from datahub.emitter.mcp import MetadataChangeProposalWrapper
 from datahub.emitter.rest_emitter import DatahubRestEmitter
@@ -16,6 +17,7 @@ from datahub.metadata.com.linkedin.pegasus2avro.mxe import (
     MetadataChangeProposal,
 )
 from datahub.metadata.com.linkedin.pegasus2avro.usage import UsageAggregation
+from datahub.utilities.server_config_util import set_gms_config
 
 logger = logging.getLogger(__name__)
 
@@ -25,16 +27,21 @@ class DatahubRestSinkConfig(DatahubClientConfig):
 
 
 @dataclass
+class DataHubRestSinkReport(SinkReport):
+    gms_version: str = ""
+
+
+@dataclass
 class DatahubRestSink(Sink):
     config: DatahubRestSinkConfig
     emitter: DatahubRestEmitter
-    report: SinkReport
+    report: DataHubRestSinkReport
     treat_errors_as_warnings: bool = False
 
     def __init__(self, ctx: PipelineContext, config: DatahubRestSinkConfig):
         super().__init__(ctx)
         self.config = config
-        self.report = SinkReport()
+        self.report = DataHubRestSinkReport()
         self.emitter = DatahubRestEmitter(
             self.config.server,
             self.config.token,
@@ -45,7 +52,16 @@ class DatahubRestSink(Sink):
             extra_headers=self.config.extra_headers,
             ca_certificate_path=self.config.ca_certificate_path,
         )
-        self.emitter.test_connection()
+        gms_config = self.emitter.test_connection()
+        self.report.gms_version = (
+            gms_config.get("versions", {})
+            .get("linkedin/datahub", {})
+            .get("version", "")
+        )
+        logger.debug("Setting env variables to override config")
+        set_env_variables_override_config(self.config.server, self.config.token)
+        logger.debug("Setting gms config")
+        set_gms_config(gms_config)
         self.executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=self.config.max_threads
         )
@@ -59,7 +75,6 @@ class DatahubRestSink(Sink):
         if isinstance(workunit, MetadataWorkUnit):
             mwu: MetadataWorkUnit = cast(MetadataWorkUnit, workunit)
             self.treat_errors_as_warnings = mwu.treat_errors_as_warnings
-        pass
 
     def handle_work_unit_end(self, workunit: WorkUnit) -> None:
         pass
