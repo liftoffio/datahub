@@ -17,7 +17,7 @@ import com.linkedin.metadata.aspect.CorpUserAspect;
 import com.linkedin.metadata.aspect.CorpUserAspectArray;
 import com.linkedin.metadata.snapshot.CorpUserSnapshot;
 import com.linkedin.metadata.snapshot.Snapshot;
-import com.linkedin.metadata.utils.GenericAspectUtils;
+import com.linkedin.metadata.utils.GenericRecordUtils;
 import com.linkedin.mxe.MetadataChangeProposal;
 import com.linkedin.r2.RemoteInvocationException;
 import com.typesafe.config.Config;
@@ -52,6 +52,8 @@ import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 
 import static auth.AuthUtils.*;
+import static org.pac4j.core.client.IndirectClient.*;
+
 
 // TODO add logging.
 public class AuthenticationController extends Controller {
@@ -179,7 +181,14 @@ public class AuthenticationController extends Controller {
 
     private Result redirectToIdentityProvider() {
         final PlayWebContext playWebContext = new PlayWebContext(ctx(), _playSessionStore);
-        final Client client = _ssoManager.getSsoProvider().client();
+        final Client<?, ?> client = _ssoManager.getSsoProvider().client();
+
+        // This is to prevent previous login attempts from being cached.
+        // We replicate the logic here, which is buried in the Pac4j client.
+        if (_playSessionStore.get(playWebContext, client.getName() + ATTEMPTED_AUTHENTICATION_SUFFIX) != null) {
+            _logger.debug("Found previous login attempt. Removing it manually to prevent unexpected errors.");
+            _playSessionStore.set(playWebContext, client.getName() + ATTEMPTED_AUTHENTICATION_SUFFIX, "");
+        }
         final HttpAction action = client.redirect(playWebContext);
         return new PlayHttpActionAdapter().adapt(action.getCode(), playWebContext);
     }
@@ -222,7 +231,7 @@ public class AuthenticationController extends Controller {
                 .setLastModified(new AuditStamp()
                         .setActor(Urn.createFromString(Constants.SYSTEM_ACTOR))
                         .setTime(System.currentTimeMillis()));
-        proposal.setAspect(GenericAspectUtils.serializeAspect(status));
+        proposal.setAspect(GenericRecordUtils.serializeAspect(status));
         proposal.setChangeType(ChangeType.UPSERT);
         entityClient.ingestProposal(proposal, systemAuthentication);
     }
