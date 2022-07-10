@@ -1,6 +1,7 @@
 package com.linkedin.entity.client;
 
 import com.datahub.authentication.Authentication;
+import com.linkedin.common.VersionedUrn;
 import com.linkedin.common.urn.Urn;
 import com.linkedin.data.DataMap;
 import com.linkedin.data.template.RecordTemplate;
@@ -51,6 +52,13 @@ public interface EntityClient {
   public Map<Urn, EntityResponse> batchGetV2(
       @Nonnull String entityName,
       @Nonnull final Set<Urn> urns,
+      @Nullable final Set<String> aspectNames,
+      @Nonnull final Authentication authentication) throws RemoteInvocationException, URISyntaxException;
+
+  @Nonnull
+  Map<Urn, EntityResponse> batchGetVersionedV2(
+      @Nonnull String entityName,
+      @Nonnull final Set<VersionedUrn> versionedUrns,
       @Nullable final Set<String> aspectNames,
       @Nonnull final Authentication authentication) throws RemoteInvocationException, URISyntaxException;
 
@@ -146,14 +154,15 @@ public interface EntityClient {
    *
    * @param input search query
    * @param filter search filters
+   * @param sortCriterion sort criterion
    * @param start start offset for search results
    * @param count max number of search results requested
    * @return Snapshot key
    * @throws RemoteInvocationException
    */
   @Nonnull
-  public SearchResult search(@Nonnull String entity, @Nonnull String input, @Nullable Filter filter, int start,
-      int count, @Nonnull Authentication authentication) throws RemoteInvocationException;
+  public SearchResult search(@Nonnull String entity, @Nonnull String input, @Nullable Filter filter,
+      SortCriterion sortCriterion, int start, int count, @Nonnull Authentication authentication) throws RemoteInvocationException;
 
   /**
    * Searches for entities matching to a given query and filters across multiple entity types
@@ -178,6 +187,7 @@ public interface EntityClient {
    * @param direction Direction of the relationship
    * @param entities list of entities to search (If empty, searches across all entities)
    * @param input the search input text
+   * @param maxHops the max number of hops away to search for. If null, searches all hops.
    * @param filter the request map with fields and values as filters to be applied to search hits
    * @param sortCriterion {@link SortCriterion} to be applied to search results
    * @param start index to start the search from
@@ -186,7 +196,7 @@ public interface EntityClient {
    */
   @Nonnull
   public LineageSearchResult searchAcrossLineage(@Nonnull Urn sourceUrn, @Nonnull LineageDirection direction,
-      @Nonnull List<String> entities, @Nonnull String input, @Nullable Filter filter,
+      @Nonnull List<String> entities, @Nonnull String input, @Nullable Integer maxHops, @Nullable Filter filter,
       @Nullable SortCriterion sortCriterion, int start, int count, @Nonnull final Authentication authentication)
       throws RemoteInvocationException;
 
@@ -220,6 +230,12 @@ public interface EntityClient {
       throws RemoteInvocationException;
 
   /**
+   * Delete all references to an entity with a particular urn.
+   */
+  public void deleteEntityReferences(@Nonnull final Urn urn, @Nonnull final Authentication authentication)
+      throws RemoteInvocationException;
+
+  /**
    * Filters entities based on a particular Filter and Sort criterion
    *
    * @param entity filter entity
@@ -233,6 +249,17 @@ public interface EntityClient {
   @Nonnull
   public SearchResult filter(@Nonnull String entity, @Nonnull Filter filter, @Nullable SortCriterion sortCriterion,
       int start, int count, @Nonnull Authentication authentication) throws RemoteInvocationException;
+
+  /**
+   * Checks whether an entity with a given urn exists
+   *
+   * @param urn the urn of the entity
+   * @return true if an entity exists, i.e. there are > 0 aspects in the DB for the entity. This means that the entity
+   * has not been hard-deleted.
+   * @throws RemoteInvocationException
+   */
+  @Nonnull
+  public boolean exists(@Nonnull Urn urn, @Nonnull Authentication authentication) throws RemoteInvocationException;
 
   @Nullable
   @Deprecated

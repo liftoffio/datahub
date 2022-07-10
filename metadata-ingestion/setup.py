@@ -21,9 +21,11 @@ def get_long_description():
 
 
 base_requirements = {
-    # Compatability.
+    # Compatibility.
     "dataclasses>=0.6; python_version < '3.7'",
-    "typing_extensions>=3.10.0.2",
+    # Typing extension should be >=3.10.0.2 ideally but we can't restrict due to Airflow 2.0.2 dependency conflict
+    "typing_extensions>=3.7.4.3 ;  python_version < '3.8'",
+    "typing_extensions>=3.10.0.2 ;  python_version >= '3.8'",
     "mypy_extensions>=0.4.3",
     # Actual dependencies.
     "typing-inspect",
@@ -39,7 +41,7 @@ framework_common = {
     "entrypoints",
     "docker",
     "expandvars>=0.6.5",
-    "avro-gen3==0.7.2",
+    "avro-gen3==0.7.4",
     "avro>=1.10.2,<1.11",
     "python-dateutil>=2.8.0",
     "stackprinter",
@@ -48,6 +50,7 @@ framework_common = {
     "termcolor>=1.0.0",
     "types-termcolor>=1.0.0",
     "psutil>=5.8.0",
+    "ratelimiter",
     # Markupsafe breaking change broke Jinja and some other libs
     # Pinning it to a version which works even though we are not using explicitly
     # https://github.com/aws/aws-sam-cli/issues/3661
@@ -55,6 +58,8 @@ framework_common = {
     "markupsafe>=1.1.1,<=2.0.1",
     "Deprecated",
     "types-Deprecated",
+    "humanfriendly",
+    "packaging",
 }
 
 kafka_common = {
@@ -63,17 +68,34 @@ kafka_common = {
     # At the same time, we use Kafka's AvroSerializer, which internally relies on
     # fastavro for serialization. We do not use confluent_kafka[avro], since it
     # is incompatible with its own dep on avro-python3.
-    "confluent_kafka>=1.5.0",
+    "confluent_kafka>=1.5.0,<1.9.0",
     "fastavro>=1.2.0",
 }
+
+kafka_protobuf = (
+    {
+        "networkx>=2.6.2",
+        # Required to generate protobuf python modules from the schema downloaded from the schema registry
+        "grpcio==1.44.0",
+        "grpcio-tools==1.44.0",
+        "types-protobuf",
+    }
+    if is_py37_or_newer
+    else {
+        "types-protobuf",
+    }
+)
 
 sql_common = {
     # Required for all SQL sources.
     "sqlalchemy==1.3.24",
     # Required for SQL profiling.
-    "great-expectations>=0.14.11",
+    "great-expectations>=0.14.11,<0.15.3",
     # datahub does not depend on Jinja2 directly but great expectations does. With Jinja2 3.1.0 GE 0.14.11 is breaking
     "Jinja2<3.1.0",
+    # datahub does not depend on traitlets directly but great expectations does.
+    # https://github.com/ipython/traitlets/issues/741
+    "traitlets<5.2.2",
     "greenlet",
 }
 
@@ -85,6 +107,11 @@ aws_common = {
     "botocore!=1.23.0",
 }
 
+path_spec_common = {
+    "parse>=1.19.0",
+    "wcmatch",
+}
+
 looker_common = {
     # Looker Python SDK
     "looker-sdk==22.2.1"
@@ -92,9 +119,19 @@ looker_common = {
 
 bigquery_common = {
     # Google cloud logging library
-    "google-cloud-logging",
+    "google-cloud-logging<3.1.2",
     "google-cloud-bigquery",
     "more-itertools>=8.12.0",
+    # we do not use protobuf directly but newer version caused bigquery connector to fail
+    "protobuf<=3.20.1",
+}
+
+redshift_common = {
+    "sqlalchemy-redshift",
+    "psycopg2-binary",
+    "GeoAlchemy2",
+    "sqllineage==1.3.5",
+    *path_spec_common,
 }
 
 snowflake_common = {
@@ -103,6 +140,7 @@ snowflake_common = {
     # Required for all Snowflake sources
     "snowflake-sqlalchemy<=1.2.4",
     "cryptography",
+    "msal",
 }
 
 trino = {
@@ -127,15 +165,23 @@ data_lake_profiling = {
     "pyspark==3.0.3",
 }
 
-s3_base = {
-    *data_lake_base,
-    "moto[s3]",
-    "wcmatch",
+iceberg_common = {
+    # Iceberg Python SDK
+    "acryl-iceberg-legacy==0.0.4",
+    "azure-identity==1.10.0",
+}
+
+s3_base = {*data_lake_base, "moto[s3]", *path_spec_common}
+
+delta_lake = {
+    *s3_base,
+    "deltalake",
 }
 
 usage_common = {
     "sqlparse",
 }
+
 
 # Note: for all of these, framework_common will be added.
 plugins: Dict[str, Set[str]] = {
@@ -146,14 +192,14 @@ plugins: Dict[str, Set[str]] = {
     "airflow": {
         "apache-airflow >= 1.10.2",
     },
-    "great-expectations": sql_common | {"sqllineage==1.3.4"},
+    "great-expectations": sql_common | {"sqllineage==1.3.5"},
     # Source plugins
     # PyAthena is pinned with exact version because we use private method in PyAthena
     "athena": sql_common | {"PyAthena[SQLAlchemy]==2.4.1"},
     "azure-ad": set(),
     "bigquery": sql_common
     | bigquery_common
-    | {"sqlalchemy-bigquery>=1.4.1", "sqllineage==1.3.4", "sqlparse"},
+    | {"sqlalchemy-bigquery>=1.4.1", "sqllineage==1.3.5", "sqlparse"},
     "bigquery-usage": bigquery_common | usage_common | {"cachetools"},
     "clickhouse": sql_common | {"clickhouse-sqlalchemy==0.1.8"},
     "clickhouse-usage": sql_common
@@ -165,32 +211,41 @@ plugins: Dict[str, Set[str]] = {
     "datahub-business-glossary": set(),
     "data-lake": {*data_lake_base, *data_lake_profiling},
     "s3": {*s3_base, *data_lake_profiling},
-    "dbt": {"requests"},
+    "delta-lake": {*data_lake_profiling, *delta_lake},
+    "dbt": {"requests"} | aws_common,
     "druid": sql_common | {"pydruid>=0.6.2"},
     # Starting with 7.14.0 python client is checking if it is connected to elasticsearch client. If its not it throws
     # UnsupportedProductError
     # https://www.elastic.co/guide/en/elasticsearch/client/python-api/current/release-notes.html#rn-7-14-0
     # https://github.com/elastic/elasticsearch-py/issues/1639#issuecomment-883587433
     "elasticsearch": {"elasticsearch==7.13.4"},
-    "feast": {"docker"},
+    "feast-legacy": {"docker"},
+    "feast": {"feast==0.18.0", "flask-openid>=1.3.0"},
     "glue": aws_common,
+    # hdbcli is supported officially by SAP, sqlalchemy-hana is built on top but not officially supported
+    "hana": sql_common
+    | {
+        "sqlalchemy-hana>=0.5.0; platform_machine != 'aarch64' and platform_machine != 'arm64'",
+        "hdbcli>=2.11.20; platform_machine != 'aarch64' and platform_machine != 'arm64'",
+    },
     "hive": sql_common
     | {
         # Acryl Data maintains a fork of PyHive
         # - 0.6.11 adds support for table comments and column comments,
         #   and also releases HTTP and HTTPS transport schemes
         # - 0.6.12 adds support for Spark Thrift Server
-        "acryl-pyhive[hive]>=0.6.12"
+        "acryl-pyhive[hive]>=0.6.13"
     },
-    "kafka": kafka_common,
+    "iceberg": iceberg_common,
+    "kafka": {*kafka_common, *kafka_protobuf},
     "kafka-connect": sql_common | {"requests", "JPype1"},
     "ldap": {"python-ldap>=2.4"},
     "looker": looker_common,
     # lkml>=1.1.2 is required to support the sql_preamble expression in LookML
     "lookml": looker_common
-    | {"lkml>=1.1.2", "sql-metadata==2.2.2", "sqllineage==1.3.4"},
-    "metabase": {"requests", "sqllineage==1.3.4"},
-    "mode": {"requests", "sqllineage==1.3.4", "tenacity>=8.0.1"},
+    | {"lkml>=1.1.2", "sql-metadata==2.2.2", "sqllineage==1.3.5"},
+    "metabase": {"requests", "sqllineage==1.3.5"},
+    "mode": {"requests", "sqllineage==1.3.5", "tenacity>=8.0.1"},
     "mongodb": {"pymongo>=3.11", "packaging"},
     "mssql": sql_common | {"sqlalchemy-pytds>=0.3"},
     "mssql-odbc": sql_common | {"pyodbc"},
@@ -202,17 +257,10 @@ plugins: Dict[str, Set[str]] = {
     "postgres": sql_common | {"psycopg2-binary", "GeoAlchemy2"},
     "presto-on-hive": sql_common
     | {"psycopg2-binary", "acryl-pyhive[hive]>=0.6.12", "pymysql>=1.0.2"},
-    "redash": {"redash-toolbelt", "sql-metadata", "sqllineage==1.3.4"},
-    "redshift": sql_common
-    | {"sqlalchemy-redshift", "psycopg2-binary", "GeoAlchemy2", "sqllineage==1.3.4"},
-    "redshift-usage": sql_common
-    | usage_common
-    | {
-        "sqlalchemy-redshift",
-        "psycopg2-binary",
-        "GeoAlchemy2",
-        "sqllineage==1.3.4",
-    },
+    "pulsar": {"requests"},
+    "redash": {"redash-toolbelt", "sql-metadata", "sqllineage==1.3.5"},
+    "redshift": sql_common | redshift_common,
+    "redshift-usage": sql_common | usage_common | redshift_common,
     "sagemaker": aws_common,
     "snowflake": snowflake_common,
     "snowflake-usage": snowflake_common
@@ -233,6 +281,7 @@ plugins: Dict[str, Set[str]] = {
     "starburst-trino-usage": sql_common | usage_common | trino,
     "nifi": {"requests", "packaging"},
     "powerbi": {"orderedset"} | microsoft_common,
+    "vertica": sql_common | {"sqlalchemy-vertica[vertica-python]==0.0.5"},
 }
 
 all_exclude_plugins: Set[str] = {
@@ -259,6 +308,7 @@ mypy_stubs = {
     "types-tabulate",
     # avrogen package requires this
     "types-pytz",
+    "types-pyOpenSSL",
 }
 
 base_dev_requirements = {
@@ -279,14 +329,12 @@ base_dev_requirements = {
     "pytest-asyncio>=0.16.0",
     "pytest-cov>=2.8.1",
     "pytest-docker>=0.10.3,<0.12",
-    "tox",
     "deepdiff",
     "requests-mock",
     "freezegun",
     "jsonpickle",
     "build",
     "twine",
-    "packaging",
     *list(
         dependency
         for plugin in [
@@ -304,28 +352,52 @@ base_dev_requirements = {
             "oracle",
             "postgres",
             "sagemaker",
-            "datahub-kafka",
+            "kafka",
             "datahub-rest",
             "redash",
             "redshift",
             "redshift-usage",
             "data-lake",
+            "delta-lake",
             "s3",
             "tableau",
             "trino",
             "hive",
             "starburst-trino-usage",
             "powerbi",
+            "vertica",
             # airflow is added below
         ]
         for dependency in plugins[plugin]
     ),
 }
 
+base_dev_requirements_airflow_1 = base_dev_requirements.copy()
+
 if is_py37_or_newer:
-    # The lookml plugin only works on Python 3.7 or newer.
+    # These plugins only work on Python 3.7 or newer.
     base_dev_requirements = base_dev_requirements.union(
-        {dependency for plugin in ["lookml"] for dependency in plugins[plugin]}
+        {
+            dependency
+            for plugin in [
+                "feast",
+                "iceberg",
+                "lookml",
+            ]
+            for dependency in plugins[plugin]
+        }
+    )
+
+    # These plugins are compatible with Airflow 1.
+    base_dev_requirements_airflow_1 = base_dev_requirements_airflow_1.union(
+        {
+            dependency
+            for plugin in [
+                "iceberg",
+                "lookml",
+            ]
+            for dependency in plugins[plugin]
+        }
     )
 
 dev_requirements = {
@@ -340,7 +412,7 @@ dev_requirements_airflow_1_base = {
     "WTForms==2.3.3",  # make constraint consistent with extras
 }
 dev_requirements_airflow_1 = {
-    *base_dev_requirements,
+    *base_dev_requirements_airflow_1,
     *dev_requirements_airflow_1_base,
 }
 
@@ -348,11 +420,10 @@ full_test_dev_requirements = {
     *list(
         dependency
         for plugin in [
-            # Only include Athena for Python 3.7 or newer.
-            *(["athena"] if is_py37_or_newer else []),
             "clickhouse",
             "druid",
-            "feast",
+            "feast-legacy",
+            "hana",
             "hive",
             "ldap",
             "mongodb",
@@ -362,14 +433,30 @@ full_test_dev_requirements = {
             "snowflake",
             "redash",
             "kafka-connect",
+            "vertica",
         ]
         for dependency in plugins[plugin]
     ),
 }
 
+if is_py37_or_newer:
+    # These plugins only work on Python 3.7 or newer.
+    full_test_dev_requirements = full_test_dev_requirements.union(
+        {
+            dependency
+            for plugin in [
+                "athena",
+                "feast",
+                "iceberg",
+            ]
+            for dependency in plugins[plugin]
+        }
+    )
+
 entry_points = {
     "console_scripts": ["datahub = datahub.entrypoints:main"],
     "datahub.ingestion.source.plugins": [
+        "csv-enricher = datahub.ingestion.source.csv_enricher:CSVEnricherSource",
         "file = datahub.ingestion.source.file:GenericFileSource",
         "sqlalchemy = datahub.ingestion.source.sql.sql_generic:SQLAlchemyGenericSource",
         "athena = datahub.ingestion.source.sql.athena:AthenaSource",
@@ -379,13 +466,16 @@ entry_points = {
         "clickhouse = datahub.ingestion.source.sql.clickhouse:ClickHouseSource",
         "clickhouse-usage = datahub.ingestion.source.usage.clickhouse_usage:ClickHouseUsageSource",
         "data-lake = datahub.ingestion.source.data_lake:DataLakeSource",
+        "delta-lake = datahub.ingestion.source.delta_lake:DeltaLakeSource",
         "s3 = datahub.ingestion.source.s3:S3Source",
         "dbt = datahub.ingestion.source.dbt:DBTSource",
         "druid = datahub.ingestion.source.sql.druid:DruidSource",
         "elasticsearch = datahub.ingestion.source.elastic_search:ElasticsearchSource",
-        "feast = datahub.ingestion.source.feast:FeastSource",
+        "feast-legacy = datahub.ingestion.source.feast_legacy:FeastSource",
+        "feast = datahub.ingestion.source.feast:FeastRepositorySource",
         "glue = datahub.ingestion.source.aws.glue:GlueSource",
         "sagemaker = datahub.ingestion.source.aws.sagemaker:SagemakerSource",
+        "hana = datahub.ingestion.source.sql.hana:HanaSource",
         "hive = datahub.ingestion.source.sql.hive:HiveSource",
         "kafka = datahub.ingestion.source.kafka:KafkaSource",
         "kafka-connect = datahub.ingestion.source.kafka_connect:KafkaConnectSource",
@@ -415,7 +505,10 @@ entry_points = {
         "starburst-trino-usage = datahub.ingestion.source.usage.starburst_trino_usage:TrinoUsageSource",
         "nifi = datahub.ingestion.source.nifi:NifiSource",
         "powerbi = datahub.ingestion.source.powerbi:PowerBiDashboardSource",
+        "iceberg = datahub.ingestion.source.iceberg.iceberg:IcebergSource",
+        "vertica = datahub.ingestion.source.sql.vertica:VerticaSource",
         "presto-on-hive = datahub.ingestion.source.sql.presto_on_hive:PrestoOnHiveSource",
+        "pulsar = datahub.ingestion.source.pulsar:PulsarSource",
     ],
     "datahub.ingestion.sink.plugins": [
         "file = datahub.ingestion.sink.file:FileSink",

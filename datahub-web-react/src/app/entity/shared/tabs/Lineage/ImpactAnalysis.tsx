@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import * as QueryString from 'query-string';
 import { useLocation } from 'react-router';
+import styled from 'styled-components';
 
 import { useSearchAcrossLineageQuery } from '../../../../../graphql/search.generated';
 import { EntityType, FacetFilterInput, LineageDirection } from '../../../../../types.generated';
@@ -11,11 +12,16 @@ import analytics, { EventType } from '../../../../analytics';
 import { EmbeddedListSearch } from '../../components/styled/search/EmbeddedListSearch';
 import generateUseSearchResultsViaRelationshipHook from './generateUseSearchResultsViaRelationshipHook';
 
+const ImpactAnalysisWrapper = styled.div`
+    flex: 1;
+`;
+
 type Props = {
     urn: string;
+    direction: LineageDirection;
 };
 
-export const ImpactAnalysis = ({ urn }: Props) => {
+export const ImpactAnalysis = ({ urn, direction }: Props) => {
     const location = useLocation();
 
     const params = QueryString.parse(location.search, { arrayFormat: 'comma' });
@@ -33,7 +39,7 @@ export const ImpactAnalysis = ({ urn }: Props) => {
         variables: {
             input: {
                 urn,
-                direction: LineageDirection.Downstream,
+                direction,
                 types: entityFilters,
                 query,
                 start: (page - 1) * SearchCfg.RESULTS_PER_PAGE,
@@ -54,13 +60,15 @@ export const ImpactAnalysis = ({ urn }: Props) => {
     }, [query, data, loading]);
 
     return (
-        <div>
+        <ImpactAnalysisWrapper>
             <EmbeddedListSearch
                 useGetSearchResults={generateUseSearchResultsViaRelationshipHook({
                     urn,
-                    direction: LineageDirection.Downstream,
+                    direction,
                 })}
+                defaultShowFilters
+                defaultFilters={[{ field: 'degree', value: '1' }]}
             />
-        </div>
+        </ImpactAnalysisWrapper>
     );
 };

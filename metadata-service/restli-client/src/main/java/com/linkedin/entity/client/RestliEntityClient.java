@@ -2,8 +2,10 @@ package com.linkedin.entity.client;
 
 import com.datahub.authentication.Authentication;
 import com.datahub.util.RecordUtils;
+import com.linkedin.common.VersionedUrn;
 import com.linkedin.common.client.BaseClient;
 import com.linkedin.common.urn.Urn;
+import com.linkedin.common.urn.UrnUtils;
 import com.linkedin.data.DataMap;
 import com.linkedin.data.template.RecordTemplate;
 import com.linkedin.data.template.StringArray;
@@ -16,7 +18,9 @@ import com.linkedin.entity.EntitiesDoAutocompleteRequestBuilder;
 import com.linkedin.entity.EntitiesDoBatchGetTotalEntityCountRequestBuilder;
 import com.linkedin.entity.EntitiesDoBatchIngestRequestBuilder;
 import com.linkedin.entity.EntitiesDoBrowseRequestBuilder;
+import com.linkedin.entity.EntitiesDoDeleteReferencesRequestBuilder;
 import com.linkedin.entity.EntitiesDoDeleteRequestBuilder;
+import com.linkedin.entity.EntitiesDoExistsRequestBuilder;
 import com.linkedin.entity.EntitiesDoFilterRequestBuilder;
 import com.linkedin.entity.EntitiesDoGetBrowsePathsRequestBuilder;
 import com.linkedin.entity.EntitiesDoIngestRequestBuilder;
@@ -30,6 +34,8 @@ import com.linkedin.entity.EntitiesRequestBuilders;
 import com.linkedin.entity.EntitiesV2BatchGetRequestBuilder;
 import com.linkedin.entity.EntitiesV2GetRequestBuilder;
 import com.linkedin.entity.EntitiesV2RequestBuilders;
+import com.linkedin.entity.EntitiesVersionedV2BatchGetRequestBuilder;
+import com.linkedin.entity.EntitiesVersionedV2RequestBuilders;
 import com.linkedin.entity.Entity;
 import com.linkedin.entity.EntityArray;
 import com.linkedin.entity.EntityResponse;
@@ -76,6 +82,8 @@ public class RestliEntityClient extends BaseClient implements EntityClient {
 
   private static final EntitiesRequestBuilders ENTITIES_REQUEST_BUILDERS = new EntitiesRequestBuilders();
   private static final EntitiesV2RequestBuilders ENTITIES_V2_REQUEST_BUILDERS = new EntitiesV2RequestBuilders();
+  private static final EntitiesVersionedV2RequestBuilders ENTITIES_VERSIONED_V2_REQUEST_BUILDERS =
+      new EntitiesVersionedV2RequestBuilders();
   private static final AspectsRequestBuilders ASPECTS_REQUEST_BUILDERS = new AspectsRequestBuilders();
   private static final PlatformRequestBuilders PLATFORM_REQUEST_BUILDERS = new PlatformRequestBuilders();
 
@@ -169,6 +177,37 @@ public class RestliEntityClient extends BaseClient implements EntityClient {
                 String.format("Failed to bind urn string with value %s into urn", entry.getKey()));
           }
         }, entry -> entry.getValue().getEntity()));
+  }
+
+  /**
+   * Batch get a set of versioned aspects for a single entity.
+   *
+   * @param entityName the entity type to fetch
+   * @param versionedUrns the urns of the entities to batch get
+   * @param aspectNames the aspect names to batch get
+   * @param authentication the authentication to include in the request to the Metadata Service
+   * @throws RemoteInvocationException
+   */
+  @Nonnull
+  public Map<Urn, EntityResponse> batchGetVersionedV2(
+      @Nonnull String entityName,
+      @Nonnull final Set<VersionedUrn> versionedUrns,
+      @Nullable final Set<String> aspectNames,
+      @Nonnull final Authentication authentication) throws RemoteInvocationException, URISyntaxException {
+
+    final EntitiesVersionedV2BatchGetRequestBuilder requestBuilder = ENTITIES_VERSIONED_V2_REQUEST_BUILDERS.batchGet()
+        .aspectsParam(aspectNames)
+        .entityTypeParam(entityName)
+        .ids(versionedUrns.stream()
+            .map(versionedUrn -> com.linkedin.common.urn.VersionedUrn.of(versionedUrn.getUrn().toString(), versionedUrn.getVersionStamp()))
+            .collect(Collectors.toSet()));
+
+    return sendClientRequest(requestBuilder, authentication).getEntity()
+        .getResults()
+        .entrySet()
+        .stream()
+        .collect(Collectors.toMap(entry ->
+            UrnUtils.getUrn(entry.getKey().getUrn()), entry -> entry.getValue().getEntity()));
   }
 
   /**
@@ -319,14 +358,16 @@ public class RestliEntityClient extends BaseClient implements EntityClient {
    *
    * @param input search query
    * @param filter search filters
+   * @param sortCriterion sort criterion
    * @param start start offset for search results
    * @param count max number of search results requested
    * @return Snapshot key
    * @throws RemoteInvocationException
    */
   @Nonnull
-  public SearchResult search(@Nonnull String entity, @Nonnull String input, @Nullable Filter filter, int start,
-      int count, @Nonnull final Authentication authentication) throws RemoteInvocationException {
+  public SearchResult search(@Nonnull String entity, @Nonnull String input, @Nullable Filter filter,
+      SortCriterion sortCriterion, int start, int count, @Nonnull final Authentication authentication)
+      throws RemoteInvocationException {
 
     final EntitiesDoSearchRequestBuilder requestBuilder = ENTITIES_REQUEST_BUILDERS.actionSearch()
         .entityParam(entity)
@@ -336,6 +377,10 @@ public class RestliEntityClient extends BaseClient implements EntityClient {
 
     if (filter != null) {
       requestBuilder.filterParam(filter);
+    }
+
+    if (sortCriterion != null) {
+      requestBuilder.sortParam(sortCriterion);
     }
 
     return sendClientRequest(requestBuilder, authentication).getEntity();
@@ -373,7 +418,7 @@ public class RestliEntityClient extends BaseClient implements EntityClient {
   @Nonnull
   @Override
   public LineageSearchResult searchAcrossLineage(@Nonnull Urn sourceUrn, @Nonnull LineageDirection direction,
-      @Nonnull List<String> entities, @Nonnull String input, @Nullable Filter filter,
+      @Nonnull List<String> entities, @Nonnull String input, @Nullable Integer maxHops, @Nullable Filter filter,
       @Nullable SortCriterion sortCriterion, int start, int count, @Nonnull final Authentication authentication)
       throws RemoteInvocationException {
 
@@ -444,6 +489,16 @@ public class RestliEntityClient extends BaseClient implements EntityClient {
     sendClientRequest(requestBuilder, authentication);
   }
 
+  /**
+   * Delete all references to a particular entity.
+   */
+  @Override
+  public void deleteEntityReferences(@Nonnull Urn urn, @Nonnull Authentication authentication)
+      throws RemoteInvocationException {
+    EntitiesDoDeleteReferencesRequestBuilder requestBuilder = ENTITIES_REQUEST_BUILDERS.actionDeleteReferences().urnParam(urn.toString());
+    sendClientRequest(requestBuilder, authentication);
+  }
+
   @Nonnull
   @Override
   public SearchResult filter(@Nonnull String entity, @Nonnull Filter filter, @Nullable SortCriterion sortCriterion,
@@ -456,6 +511,14 @@ public class RestliEntityClient extends BaseClient implements EntityClient {
     if (sortCriterion != null) {
       requestBuilder.sortParam(sortCriterion);
     }
+    return sendClientRequest(requestBuilder, authentication).getEntity();
+  }
+
+  @Nonnull
+  @Override
+  public boolean exists(@Nonnull Urn urn, @Nonnull final Authentication authentication) throws RemoteInvocationException {
+    EntitiesDoExistsRequestBuilder requestBuilder = ENTITIES_REQUEST_BUILDERS.actionExists()
+        .urnParam(urn.toString());
     return sendClientRequest(requestBuilder, authentication).getEntity();
   }
 

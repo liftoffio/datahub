@@ -6,6 +6,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.linkedin.aspect.GetTimeseriesAspectValuesResponse;
 import com.linkedin.common.AuditStamp;
+import com.linkedin.common.VersionedUrn;
 import com.linkedin.common.urn.Urn;
 import com.linkedin.data.DataMap;
 import com.linkedin.data.template.RecordTemplate;
@@ -17,6 +18,7 @@ import com.linkedin.metadata.aspect.EnvelopedAspect;
 import com.linkedin.metadata.aspect.EnvelopedAspectArray;
 import com.linkedin.metadata.aspect.VersionedAspect;
 import com.linkedin.metadata.browse.BrowseResult;
+import com.linkedin.metadata.entity.DeleteEntityService;
 import com.linkedin.metadata.entity.EntityService;
 import com.linkedin.metadata.event.EventProducer;
 import com.linkedin.metadata.graph.LineageDirection;
@@ -62,6 +64,7 @@ public class JavaEntityClient implements EntityClient {
     private final Clock _clock = Clock.systemUTC();
 
     private final EntityService _entityService;
+    private final DeleteEntityService _deleteEntityService;
     private final EventProducer _eventProducer;
     private final EntitySearchService _entitySearchService;
     private final SearchService _searchService;
@@ -96,6 +99,18 @@ public class JavaEntityClient implements EntityClient {
             ? _entityService.getEntityAspectNames(entityName)
             : aspectNames;
         return _entityService.getEntitiesV2(entityName, urns, projectedAspects);
+    }
+
+    @Nonnull
+    public Map<Urn, EntityResponse> batchGetVersionedV2(
+        @Nonnull String entityName,
+        @Nonnull final Set<VersionedUrn> versionedUrns,
+        @Nullable final Set<String> aspectNames,
+        @Nonnull final Authentication authentication) throws RemoteInvocationException, URISyntaxException {
+        final Set<String> projectedAspects = aspectNames == null
+            ? _entityService.getEntityAspectNames(entityName)
+            : aspectNames;
+        return _entityService.getEntitiesVersionedV2(versionedUrns, projectedAspects);
     }
 
     @Nonnull
@@ -248,6 +263,7 @@ public class JavaEntityClient implements EntityClient {
      *
      * @param input search query
      * @param filter search filters
+     * @param sortCriterion sort criterion
      * @param start start offset for search results
      * @param count max number of search results requested
      * @return Snapshot key
@@ -258,11 +274,12 @@ public class JavaEntityClient implements EntityClient {
         @Nonnull String entity,
         @Nonnull String input,
         @Nullable Filter filter,
+        @Nullable SortCriterion sortCriterion,
         int start,
         int count,
         @Nonnull final Authentication authentication)
         throws RemoteInvocationException {
-        return _entitySearchService.search(entity, input, filter, null, start, count);
+        return _entitySearchService.search(entity, input, filter, sortCriterion, start, count);
     }
 
     /**
@@ -290,10 +307,10 @@ public class JavaEntityClient implements EntityClient {
     @Nonnull
     @Override
     public LineageSearchResult searchAcrossLineage(@Nonnull Urn sourceUrn, @Nonnull LineageDirection direction,
-        @Nonnull List<String> entities, @Nullable String input, @Nullable Filter filter,
+        @Nonnull List<String> entities, @Nullable String input, @Nullable Integer maxHops, @Nullable Filter filter,
         @Nullable SortCriterion sortCriterion, int start, int count, @Nonnull final Authentication authentication)
         throws RemoteInvocationException {
-        return _lineageSearchService.searchAcrossLineage(sourceUrn, direction, entities, input, filter,
+        return _lineageSearchService.searchAcrossLineage(sourceUrn, direction, entities, input, maxHops, filter,
             sortCriterion, start, count);
     }
 
@@ -335,11 +352,23 @@ public class JavaEntityClient implements EntityClient {
         _entityService.deleteUrn(urn);
     }
 
+    @Override
+    public void deleteEntityReferences(@Nonnull Urn urn, @Nonnull Authentication authentication)
+        throws RemoteInvocationException {
+        _deleteEntityService.deleteReferencesTo(urn, false);
+    }
+
     @Nonnull
     @Override
     public SearchResult filter(@Nonnull String entity, @Nonnull Filter filter, @Nullable SortCriterion sortCriterion,
         int start, int count, @Nonnull final Authentication authentication) throws RemoteInvocationException {
         return _entitySearchService.filter(entity, filter, sortCriterion, start, count);
+    }
+
+    @Nonnull
+    @Override
+    public boolean exists(@Nonnull Urn urn, @Nonnull final Authentication authentication) throws RemoteInvocationException {
+        return _entityService.exists(urn);
     }
 
     @SneakyThrows

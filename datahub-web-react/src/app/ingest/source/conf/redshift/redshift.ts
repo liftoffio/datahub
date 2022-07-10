@@ -1,8 +1,6 @@
 import { SourceConfig } from '../types';
 import redshiftLogo from '../../../../../images/redshiftlogo.png';
 
-const baseUrl = window.location.origin;
-
 const placeholderRecipe = `\
 source: 
     type: redshift
@@ -23,18 +21,13 @@ source:
         # Profiling
         profiling:
             enabled: false
-sink: 
-    type: datahub-rest 
-    config: 
-        server: "${baseUrl}/api/gms"
-        # Add a secret in secrets Tab
-        token: "\${GMS_TOKEN}"`;
+`;
 
 const redshiftConfig: SourceConfig = {
     type: 'redshift',
     placeholderRecipe,
     displayName: 'Redshift',
-    docsUrl: 'https://datahubproject.io/docs/metadata-ingestion/source_docs/redshift/',
+    docsUrl: 'https://datahubproject.io/docs/generated/ingestion/sources/redshift/',
     logoUrl: redshiftLogo,
 };
 

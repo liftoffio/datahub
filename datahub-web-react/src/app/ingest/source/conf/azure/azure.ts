@@ -1,8 +1,6 @@
 import { SourceConfig } from '../types';
 import azureLogo from '../../../../../images/azure-ad.png';
 
-const baseUrl = window.location.origin;
-
 const placeholderRecipe = `\
 source:
     type: azure-ad
@@ -29,18 +27,13 @@ source:
         # users_pattern:
         #    allow:
         #        - ".*"
-sink: 
-    type: datahub-rest
-    config: 
-        server: "${baseUrl}/api/gms"
-        # Add a secret in secrets Tab
-        token: "\${GMS_TOKEN}"`;
+`;
 
 const azureAdConfig: SourceConfig = {
     type: 'azure-ad',
     placeholderRecipe,
     displayName: 'Azure AD',
-    docsUrl: 'https://datahubproject.io/docs/metadata-ingestion/source_docs/azure-ad',
+    docsUrl: 'https://datahubproject.io/docs/generated/ingestion/sources/azure-ad',
     logoUrl: azureLogo,
 };
 

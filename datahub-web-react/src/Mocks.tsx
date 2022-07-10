@@ -16,6 +16,7 @@ import {
     DataFlow,
     DataJob,
     GlossaryTerm,
+    GlossaryNode,
     EntityType,
     PlatformType,
     MlModel,
@@ -24,6 +25,8 @@ import {
     ScenarioType,
     RecommendationRenderType,
     RelationshipDirection,
+    Container,
+    PlatformPrivileges,
 } from './types.generated';
 import { GetTagDocument } from './graphql/tag.generated';
 import { GetMlModelDocument } from './graphql/mlModel.generated';
@@ -32,6 +35,7 @@ import { GetGlossaryTermDocument, GetGlossaryTermQuery } from './graphql/glossar
 import { GetEntityCountsDocument } from './graphql/app.generated';
 import { GetMeDocument } from './graphql/me.generated';
 import { ListRecommendationsDocument } from './graphql/recommendations.generated';
+import { FetchedEntity } from './app/lineage/types';
 
 const user1 = {
     username: 'sdas',
@@ -115,7 +119,7 @@ const dataPlatform = {
     },
 };
 
-const dataset1 = {
+export const dataset1 = {
     urn: 'urn:li:dataset:1',
     type: EntityType.Dataset,
     platform: {
@@ -129,6 +133,7 @@ const dataset1 = {
             logoUrl: '',
         },
     },
+    dataPlatformInstance: null,
     platformNativeType: 'TABLE',
     name: 'The Great Test Dataset',
     origin: 'PROD',
@@ -203,12 +208,13 @@ const dataset1 = {
     container: null,
     upstream: null,
     downstream: null,
-    health: null,
+    health: [],
     assertions: null,
     deprecation: null,
+    testResults: null,
 };
 
-const dataset2 = {
+export const dataset2 = {
     urn: 'urn:li:dataset:2',
     type: EntityType.Dataset,
     platform: {
@@ -222,6 +228,7 @@ const dataset2 = {
         },
         type: EntityType.DataPlatform,
     },
+    dataPlatformInstance: null,
     platformNativeType: 'TABLE',
     name: 'Some Other Dataset',
     origin: 'PROD',
@@ -231,6 +238,7 @@ const dataset2 = {
         name: 'Some Other Dataset',
         description: 'This is some other dataset, so who cares!',
         customProperties: [],
+        origin: 'PROD',
     },
     editableProperties: null,
     created: {
@@ -281,10 +289,11 @@ const dataset2 = {
     container: null,
     upstream: null,
     downstream: null,
-    health: null,
+    health: [],
     assertions: null,
     status: null,
     deprecation: null,
+    testResults: null,
 };
 
 export const dataset3 = {
@@ -302,6 +311,7 @@ export const dataset3 = {
         },
         type: EntityType.DataPlatform,
     },
+    dataPlatformInstance: null,
     platformNativeType: 'STREAM',
     name: 'Yet Another Dataset',
     origin: 'PROD',
@@ -312,6 +322,10 @@ export const dataset3 = {
         origin: 'PROD',
         customProperties: [{ key: 'propertyAKey', value: 'propertyAValue' }],
         externalUrl: 'https://data.hub',
+    },
+    parentContainers: {
+        count: 0,
+        containers: [],
     },
     editableProperties: null,
     created: {
@@ -485,11 +499,13 @@ export const dataset3 = {
     container: null,
     lineage: null,
     relationships: null,
-    health: null,
+    health: [],
     assertions: null,
     status: null,
     readRuns: null,
     writeRuns: null,
+    testResults: null,
+    siblings: null,
 } as Dataset;
 
 export const dataset4 = {
@@ -753,6 +769,29 @@ export const dataset7WithSelfReferentialLineage = {
         ],
     },
 };
+
+export const container1 = {
+    urn: 'urn:li:container:DATABASE',
+    type: EntityType.Container,
+    platform: dataPlatform,
+    properties: {
+        name: 'database1',
+        __typename: 'ContainerProperties',
+    },
+    __typename: 'Container',
+} as Container;
+
+export const container2 = {
+    urn: 'urn:li:container:SCHEMA',
+    type: EntityType.Container,
+    platform: dataPlatform,
+    properties: {
+        name: 'schema1',
+        __typename: 'ContainerProperties',
+    },
+    __typename: 'Container',
+} as Container;
+
 const glossaryTerm1 = {
     urn: 'urn:li:glossaryTerm:1',
     type: EntityType.GlossaryTerm,
@@ -932,6 +971,71 @@ const glossaryTerm3 = {
     __typename: 'GlossaryTerm',
 } as GlossaryTerm;
 
+export const glossaryNode1 = {
+    urn: 'urn:li:glossaryNode:example.glossarynode1',
+    type: 'GLOSSARY_NODE',
+    properties: {
+        name: 'Glossary Node 1',
+    },
+    parentNodes: {
+        count: 0,
+        nodes: [],
+    },
+    __typename: 'GlossaryNode',
+} as GlossaryNode;
+
+export const glossaryNode2 = {
+    urn: 'urn:li:glossaryNode:example.glossarynode2',
+    type: 'GLOSSARY_NODE',
+    properties: {
+        name: 'Glossary Node 2',
+    },
+    parentNodes: {
+        count: 1,
+        nodes: [glossaryNode1],
+    },
+    __typename: 'GlossaryNode',
+} as GlossaryNode;
+
+export const glossaryNode3 = {
+    urn: 'urn:li:glossaryNode:example.glossarynode3',
+    type: 'GLOSSARY_NODE',
+    properties: {
+        name: 'Glossary Node 3',
+    },
+    parentNodes: {
+        count: 2,
+        nodes: [glossaryNode2, glossaryNode1],
+    },
+    __typename: 'GlossaryNode',
+} as GlossaryNode;
+
+export const glossaryNode4 = {
+    urn: 'urn:li:glossaryNode:example.glossarynode4',
+    type: 'GLOSSARY_NODE',
+    properties: {
+        name: 'Glossary Node 4',
+    },
+    parentNodes: {
+        count: 0,
+        nodes: [],
+    },
+    __typename: 'GlossaryNode',
+} as GlossaryNode;
+
+export const glossaryNode5 = {
+    urn: 'urn:li:glossaryNode:example.glossarynode5',
+    type: 'GLOSSARY_NODE',
+    properties: {
+        name: 'Glossary Node 5',
+    },
+    parentNodes: {
+        count: 1,
+        nodes: [glossaryNode4],
+    },
+    __typename: 'GlossaryNode',
+} as GlossaryNode;
+
 const sampleTag = {
     urn: 'urn:li:tag:abc-sample-tag',
     name: 'abc-sample-tag',
@@ -1055,8 +1159,8 @@ export const dataJob1 = {
     editableProperties: null,
     inputOutput: {
         __typename: 'DataJobInputOutput',
-        inputDatasets: [dataset3],
-        outputDatasets: [dataset3],
+        inputDatasets: [dataset5],
+        outputDatasets: [dataset6],
         inputDatajobs: [],
     },
     globalTags: {
@@ -1297,6 +1401,28 @@ export const mlModel = {
     status: null,
     deprecation: null,
 } as MlModel;
+
+export const dataset1FetchedEntity = {
+    urn: dataset1.urn,
+    name: dataset1.name,
+    type: dataset1.type,
+    upstreamChildren: [],
+    downstreamChildren: [
+        { type: EntityType.Dataset, entity: dataset2 },
+        { type: EntityType.DataJob, entity: dataJob1 },
+    ],
+} as FetchedEntity;
+
+export const dataset2FetchedEntity = {
+    urn: dataset2.urn,
+    name: 'test name',
+    type: dataset2.type,
+    upstreamChildren: [
+        { type: EntityType.Dataset, entity: dataset1 },
+        { type: EntityType.DataJob, entity: dataJob1 },
+    ],
+    downstreamChildren: [],
+} as FetchedEntity;
 
 export const mlModelGroup = {
     __typename: 'MLModelGroup',
@@ -1720,6 +1846,14 @@ export const mocks = [
                             aggregations: [{ value: 'PROD', count: 3, entity: null }],
                         },
                         {
+                            field: 'entity',
+                            displayName: 'Type',
+                            aggregations: [
+                                { count: 37, entity: null, value: 'DATASET', __typename: 'AggregationMetadata' },
+                                { count: 7, entity: null, value: 'CHART', __typename: 'AggregationMetadata' },
+                            ],
+                        },
+                        {
                             field: 'platform',
                             displayName: 'platform',
                             aggregations: [
@@ -1783,6 +1917,14 @@ export const mocks = [
                             ],
                         },
                         {
+                            field: 'entity',
+                            displayName: 'Type',
+                            aggregations: [
+                                { count: 37, entity: null, value: 'DATASET', __typename: 'AggregationMetadata' },
+                                { count: 7, entity: null, value: 'CHART', __typename: 'AggregationMetadata' },
+                            ],
+                        },
+                        {
                             __typename: 'FacetMetadata',
                             field: 'platform',
                             displayName: 'platform',
@@ -1838,6 +1980,14 @@ export const mocks = [
                                     count: 3,
                                     entity: null,
                                 },
+                            ],
+                        },
+                        {
+                            field: 'entity',
+                            displayName: 'Type',
+                            aggregations: [
+                                { count: 37, entity: null, value: 'DATASET', __typename: 'AggregationMetadata' },
+                                { count: 7, entity: null, value: 'CHART', __typename: 'AggregationMetadata' },
                             ],
                         },
                         {
@@ -1930,6 +2080,14 @@ export const mocks = [
                                     count: 3,
                                     entity: null,
                                 },
+                            ],
+                        },
+                        {
+                            field: 'entity',
+                            displayName: 'Type',
+                            aggregations: [
+                                { count: 37, entity: null, value: 'DATASET', __typename: 'AggregationMetadata' },
+                                { count: 7, entity: null, value: 'CHART', __typename: 'AggregationMetadata' },
                             ],
                         },
                         {
@@ -2089,6 +2247,14 @@ export const mocks = [
                             ],
                         },
                         {
+                            field: 'entity',
+                            displayName: 'Type',
+                            aggregations: [
+                                { count: 37, entity: null, value: 'DATASET', __typename: 'AggregationMetadata' },
+                                { count: 7, entity: null, value: 'CHART', __typename: 'AggregationMetadata' },
+                            ],
+                        },
+                        {
                             field: 'platform',
                             displayName: 'platform',
                             aggregations: [
@@ -2151,6 +2317,14 @@ export const mocks = [
                                     count: 3,
                                     entity: null,
                                 },
+                            ],
+                        },
+                        {
+                            field: 'entity',
+                            displayName: 'Type',
+                            aggregations: [
+                                { count: 37, entity: null, value: 'DATASET', __typename: 'AggregationMetadata' },
+                                { count: 7, entity: null, value: 'CHART', __typename: 'AggregationMetadata' },
                             ],
                         },
                         {
@@ -2435,6 +2609,26 @@ export const mocks = [
                                 },
                             ],
                         },
+                        // {
+                        //     displayName: 'Domain',
+                        //     field: 'domains',
+                        //     __typename: 'FacetMetadata',
+                        //     aggregations: [
+                        //         {
+                        //             value: 'urn:li:domain:baedb9f9-98ef-4846-8a0c-2a88680f213e',
+                        //             count: 1,
+                        //             __typename: 'AggregationMetadata',
+                        //         },
+                        //     ],
+                        // },
+                        {
+                            field: 'entity',
+                            displayName: 'Type',
+                            aggregations: [
+                                { count: 37, entity: null, value: 'DATASET', __typename: 'AggregationMetadata' },
+                                { count: 7, entity: null, value: 'CHART', __typename: 'AggregationMetadata' },
+                            ],
+                        },
                         {
                             __typename: 'FacetMetadata',
                             field: 'platform',
@@ -2611,6 +2805,14 @@ export const mocks = [
                             ],
                         },
                         {
+                            field: 'entity',
+                            displayName: 'Type',
+                            aggregations: [
+                                { count: 37, entity: null, value: 'DATASET', __typename: 'AggregationMetadata' },
+                                { count: 7, entity: null, value: 'CHART', __typename: 'AggregationMetadata' },
+                            ],
+                        },
+                        {
                             field: 'platform',
                             displayName: 'platform',
                             aggregations: [
@@ -2676,69 +2878,11 @@ export const mocks = [
                             ],
                         },
                         {
-                            field: 'platform',
-                            displayName: 'platform',
+                            field: 'entity',
+                            displayName: 'Type',
                             aggregations: [
-                                { value: 'hdfs', count: 1, entity: null },
-                                { value: 'mysql', count: 1, entity: null },
-                                { value: 'kafka', count: 1, entity: null },
-                            ],
-                        },
-                    ],
-                },
-            } as GetSearchResultsForMultipleQuery,
-        },
-    },
-    {
-        request: {
-            query: GetSearchResultsForMultipleDocument,
-            variables: {
-                input: {
-                    types: ['DATASET'],
-                    query: 'test',
-                    start: 0,
-                    count: 10,
-                    filters: [
-                        {
-                            field: 'platform',
-                            value: 'kafka',
-                        },
-                        {
-                            field: 'platform',
-                            value: 'hdfs',
-                        },
-                    ],
-                },
-            },
-        },
-        result: {
-            data: {
-                __typename: 'Query',
-                searchAcrossEntities: {
-                    __typename: 'SearchResults',
-                    start: 0,
-                    count: 1,
-                    total: 1,
-                    searchResults: [
-                        {
-                            entity: {
-                                __typename: 'Dataset',
-                                ...dataset3,
-                            },
-                            matchedFields: [],
-                            insights: [],
-                        },
-                    ],
-                    facets: [
-                        {
-                            field: 'origin',
-                            displayName: 'origin',
-                            aggregations: [
-                                {
-                                    value: 'PROD',
-                                    count: 3,
-                                    entity: null,
-                                },
+                                { count: 37, entity: null, value: 'DATASET', __typename: 'AggregationMetadata' },
+                                { count: 7, entity: null, value: 'CHART', __typename: 'AggregationMetadata' },
                             ],
                         },
                         {
@@ -2805,6 +2949,88 @@ export const mocks = [
                                     count: 3,
                                     entity: null,
                                 },
+                            ],
+                        },
+                        {
+                            field: 'entity',
+                            displayName: 'Type',
+                            aggregations: [
+                                { count: 37, entity: null, value: 'DATASET', __typename: 'AggregationMetadata' },
+                                { count: 7, entity: null, value: 'CHART', __typename: 'AggregationMetadata' },
+                            ],
+                        },
+                        {
+                            field: 'platform',
+                            displayName: 'platform',
+                            aggregations: [
+                                { value: 'hdfs', count: 1, entity: null },
+                                { value: 'mysql', count: 1, entity: null },
+                                { value: 'kafka', count: 1, entity: null },
+                            ],
+                        },
+                    ],
+                },
+            } as GetSearchResultsForMultipleQuery,
+        },
+    },
+    {
+        request: {
+            query: GetSearchResultsForMultipleDocument,
+            variables: {
+                input: {
+                    types: ['DATASET'],
+                    query: 'test',
+                    start: 0,
+                    count: 10,
+                    filters: [
+                        {
+                            field: 'platform',
+                            value: 'kafka',
+                        },
+                        {
+                            field: 'platform',
+                            value: 'hdfs',
+                        },
+                    ],
+                },
+            },
+        },
+        result: {
+            data: {
+                __typename: 'Query',
+                searchAcrossEntities: {
+                    __typename: 'SearchResults',
+                    start: 0,
+                    count: 1,
+                    total: 1,
+                    searchResults: [
+                        {
+                            entity: {
+                                __typename: 'Dataset',
+                                ...dataset3,
+                            },
+                            matchedFields: [],
+                            insights: [],
+                        },
+                    ],
+                    facets: [
+                        {
+                            field: 'origin',
+                            displayName: 'origin',
+                            aggregations: [
+                                {
+                                    value: 'PROD',
+                                    count: 3,
+                                    entity: null,
+                                },
+                            ],
+                        },
+                        {
+                            field: 'entity',
+                            displayName: 'Type',
+                            aggregations: [
+                                { count: 37, entity: null, value: 'DATASET', __typename: 'AggregationMetadata' },
+                                { count: 7, entity: null, value: 'CHART', __typename: 'AggregationMetadata' },
                             ],
                         },
                         {
@@ -2858,6 +3084,17 @@ export const mocks = [
                         viewAnalytics: true,
                         managePolicies: true,
                         manageIdentities: true,
+                        manageDomains: true,
+                        manageTags: true,
+                        createDomains: true,
+                        createTags: true,
+                        manageUserCredentials: true,
+                        manageGlossaries: true,
+                        manageTests: true,
+                        manageTokens: true,
+                        manageSecrets: true,
+                        manageIngestion: true,
+                        generatePersonalAccessTokens: true,
                     },
                 },
             },
@@ -3042,6 +3279,14 @@ export const mocks = [
                             ],
                         },
                         {
+                            field: 'entity',
+                            displayName: 'Type',
+                            aggregations: [
+                                { count: 37, entity: null, value: 'DATASET', __typename: 'AggregationMetadata' },
+                                { count: 7, entity: null, value: 'CHART', __typename: 'AggregationMetadata' },
+                            ],
+                        },
+                        {
                             field: 'platform',
                             displayName: 'platform',
                             aggregations: [
@@ -3056,3 +3301,20 @@ export const mocks = [
         },
     },
 ];
+
+export const platformPrivileges: PlatformPrivileges = {
+    viewAnalytics: true,
+    managePolicies: true,
+    manageIdentities: true,
+    generatePersonalAccessTokens: true,
+    manageDomains: true,
+    manageIngestion: true,
+    manageSecrets: true,
+    manageTokens: true,
+    manageTests: true,
+    manageGlossaries: true,
+    manageUserCredentials: true,
+    manageTags: true,
+    createTags: true,
+    createDomains: true,
+};

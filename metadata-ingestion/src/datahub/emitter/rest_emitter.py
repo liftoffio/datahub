@@ -1,17 +1,17 @@
 import datetime
-import itertools
 import json
 import logging
-import shlex
 from json.decoder import JSONDecodeError
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import requests
 from requests.adapters import HTTPAdapter, Retry
 from requests.exceptions import HTTPError, RequestException
 
+from datahub.cli.cli_utils import get_system_auth
 from datahub.configuration.common import ConfigurationError, OperationalError
 from datahub.emitter.mcp import MetadataChangeProposalWrapper
+from datahub.emitter.request_helper import _make_curl_command
 from datahub.emitter.serialization_helper import pre_json_transform
 from datahub.metadata.com.linkedin.pegasus2avro.mxe import (
     MetadataChangeEvent,
@@ -22,24 +22,7 @@ from datahub.metadata.com.linkedin.pegasus2avro.usage import UsageAggregation
 logger = logging.getLogger(__name__)
 
 
-def _make_curl_command(
-    session: requests.Session, method: str, url: str, payload: str
-) -> str:
-    fragments: List[str] = [
-        "curl",
-        *itertools.chain(
-            *[
-                ("-X", method),
-                *[("-H", f"{k}: {v}") for (k, v) in session.headers.items()],
-                ("--data", payload),
-            ]
-        ),
-        url,
-    ]
-    return " ".join(shlex.quote(fragment) for fragment in fragments)
-
-
-class DatahubRestEmitter:
+class DataHubRestEmitter:
     DEFAULT_CONNECT_TIMEOUT_SEC = 30  # 30 seconds should be plenty to connect
     DEFAULT_READ_TIMEOUT_SEC = (
         30  # Any ingest call taking longer than 30 seconds should be abandoned
@@ -73,9 +56,13 @@ class DatahubRestEmitter:
         retry_max_times: Optional[int] = None,
         extra_headers: Optional[Dict[str, str]] = None,
         ca_certificate_path: Optional[str] = None,
+        server_telemetry_id: Optional[str] = None,
+        disable_ssl_verification: bool = False,
     ):
         self._gms_server = gms_server
         self._token = token
+        self.server_config: Dict[str, Any] = {}
+        self.server_telemetry_id: str = ""
 
         self._session = requests.Session()
 
@@ -87,12 +74,19 @@ class DatahubRestEmitter:
         )
         if token:
             self._session.headers.update({"Authorization": f"Bearer {token}"})
+        else:
+            system_auth = get_system_auth()
+            if system_auth is not None:
+                self._session.headers.update({"Authorization": system_auth})
 
         if extra_headers:
             self._session.headers.update(extra_headers)
 
         if ca_certificate_path:
             self._session.verify = ca_certificate_path
+
+        if disable_ssl_verification:
+            self._session.verify = False
 
         if connect_timeout_sec:
             self._connect_timeout_sec = connect_timeout_sec
@@ -141,6 +135,7 @@ class DatahubRestEmitter:
         if response.status_code == 200:
             config: dict = response.json()
             if config.get("noCode") == "true":
+                self.server_config = config
                 return config
 
             else:
@@ -253,3 +248,9 @@ class DatahubRestEmitter:
             raise OperationalError(
                 "Unable to emit metadata to DataHub GMS", {"message": str(e)}
             ) from e
+
+
+class DatahubRestEmitter(DataHubRestEmitter):
+    """This class exists as a pass-through for backwards compatibility"""
+
+    pass

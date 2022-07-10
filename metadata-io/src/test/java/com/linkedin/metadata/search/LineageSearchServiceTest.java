@@ -27,17 +27,18 @@ import com.linkedin.metadata.search.ranker.SimpleRanker;
 import com.linkedin.metadata.search.utils.QueryUtils;
 import com.linkedin.metadata.utils.elasticsearch.IndexConvention;
 import com.linkedin.metadata.utils.elasticsearch.IndexConventionImpl;
-import java.util.Collections;
-import java.util.List;
-import javax.annotation.Nonnull;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
-import org.testng.annotations.AfterTest;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.BeforeTest;
 import org.testng.annotations.Test;
+
+import javax.annotation.Nonnull;
+import java.util.Collections;
+import java.util.List;
 
 import static com.linkedin.metadata.DockerTestUtils.checkContainerEngine;
 import static com.linkedin.metadata.ElasticSearchTestUtils.syncAfterWrite;
@@ -63,13 +64,13 @@ public class LineageSearchServiceTest {
   private static final String ENTITY_NAME = "testEntity";
   private static final Urn TEST_URN = TestEntityUtil.getTestEntityUrn();
 
-  @BeforeTest
+  @BeforeClass
   public void disableAssert() {
     PathSpecBasedSchemaAnnotationVisitor.class.getClassLoader()
         .setClassAssertionStatus(PathSpecBasedSchemaAnnotationVisitor.class.getName(), false);
   }
 
-  @BeforeTest
+  @BeforeClass
   public void setup() {
     _entityRegistry = new SnapshotEntityRegistry(new Snapshot());
     _indexConvention = new IndexConventionImpl(null);
@@ -115,7 +116,7 @@ public class LineageSearchServiceTest {
     resetService();
   }
 
-  @AfterTest
+  @AfterClass
   public void tearDown() {
     _elasticsearchContainer.stop();
   }
@@ -133,11 +134,11 @@ public class LineageSearchServiceTest {
         anyInt())).thenReturn(mockResult(Collections.emptyList()));
     LineageSearchResult searchResult =
         _lineageSearchService.searchAcrossLineage(TEST_URN, LineageDirection.DOWNSTREAM, ImmutableList.of(ENTITY_NAME),
-            "test", null, null, 0, 10);
+            "test", null, null, null, 0, 10);
     assertEquals(searchResult.getNumEntities().intValue(), 0);
     searchResult =
         _lineageSearchService.searchAcrossLineage(TEST_URN, LineageDirection.DOWNSTREAM, ImmutableList.of(), "test",
-            null, null, 0, 10);
+            null, null, null, 0, 10);
     assertEquals(searchResult.getNumEntities().intValue(), 0);
     clearCache();
 
@@ -146,11 +147,11 @@ public class LineageSearchServiceTest {
         mockResult(ImmutableList.of(new LineageRelationship().setEntity(TEST_URN).setType("test").setDegree(1))));
     searchResult =
         _lineageSearchService.searchAcrossLineage(TEST_URN, LineageDirection.DOWNSTREAM, ImmutableList.of(ENTITY_NAME),
-            "test", null, null, 0, 10);
+            "test", null, null, null, 0, 10);
     assertEquals(searchResult.getNumEntities().intValue(), 0);
     searchResult =
         _lineageSearchService.searchAcrossLineage(TEST_URN, LineageDirection.DOWNSTREAM, ImmutableList.of(), "test",
-            null, null, 0, 10);
+            null, null, null, 0, 10);
     assertEquals(searchResult.getNumEntities().intValue(), 0);
     clearCache();
 
@@ -167,7 +168,7 @@ public class LineageSearchServiceTest {
         anyInt())).thenReturn(mockResult(Collections.emptyList()));
     searchResult =
         _lineageSearchService.searchAcrossLineage(TEST_URN, LineageDirection.DOWNSTREAM, ImmutableList.of(), "test",
-            null, null, 0, 10);
+            null, null, null, 0, 10);
     assertEquals(searchResult.getNumEntities().intValue(), 0);
     assertEquals(searchResult.getEntities().size(), 0);
     clearCache();
@@ -177,21 +178,21 @@ public class LineageSearchServiceTest {
         mockResult(ImmutableList.of(new LineageRelationship().setEntity(urn).setType("test").setDegree(1))));
     searchResult =
         _lineageSearchService.searchAcrossLineage(TEST_URN, LineageDirection.DOWNSTREAM, ImmutableList.of(), "test",
-            null, null, 0, 10);
+            null, null, null, 0, 10);
     assertEquals(searchResult.getNumEntities().intValue(), 1);
     assertEquals(searchResult.getEntities().get(0).getEntity(), urn);
     assertEquals(searchResult.getEntities().get(0).getDegree().intValue(), 1);
 
     searchResult =
         _lineageSearchService.searchAcrossLineage(TEST_URN, LineageDirection.DOWNSTREAM, ImmutableList.of(), "test",
-            QueryUtils.newFilter("degree.keyword", "1"), null, 0, 10);
+            null, QueryUtils.newFilter("degree.keyword", "1"), null, 0, 10);
     assertEquals(searchResult.getNumEntities().intValue(), 1);
     assertEquals(searchResult.getEntities().get(0).getEntity(), urn);
     assertEquals(searchResult.getEntities().get(0).getDegree().intValue(), 1);
 
     searchResult =
         _lineageSearchService.searchAcrossLineage(TEST_URN, LineageDirection.DOWNSTREAM, ImmutableList.of(), "test",
-            QueryUtils.newFilter("degree.keyword", "2"), null, 0, 10);
+            null, QueryUtils.newFilter("degree.keyword", "2"), null, 0, 10);
     assertEquals(searchResult.getNumEntities().intValue(), 0);
     assertEquals(searchResult.getEntities().size(), 0);
     clearCache();
@@ -207,7 +208,7 @@ public class LineageSearchServiceTest {
 
     searchResult =
         _lineageSearchService.searchAcrossLineage(TEST_URN, LineageDirection.DOWNSTREAM, ImmutableList.of(), "test",
-            null, null, 0, 10);
+            null, null, null, 0, 10);
     assertEquals(searchResult.getNumEntities().intValue(), 1);
     assertEquals(searchResult.getEntities().get(0).getEntity(), urn);
     clearCache();
@@ -217,7 +218,7 @@ public class LineageSearchServiceTest {
         mockResult(ImmutableList.of(new LineageRelationship().setEntity(urn2).setType("test").setDegree(1))));
     searchResult =
         _lineageSearchService.searchAcrossLineage(TEST_URN, LineageDirection.DOWNSTREAM, ImmutableList.of(), "test",
-            null, null, 0, 10);
+            null, null, null, 0, 10);
     assertEquals(searchResult.getNumEntities().intValue(), 0);
     assertEquals(searchResult.getEntities().size(), 0);
     clearCache();
@@ -231,7 +232,7 @@ public class LineageSearchServiceTest {
         mockResult(ImmutableList.of(new LineageRelationship().setEntity(urn).setType("test").setDegree(1))));
     searchResult =
         _lineageSearchService.searchAcrossLineage(TEST_URN, LineageDirection.DOWNSTREAM, ImmutableList.of(), "test",
-            null, null, 0, 10);
+            null, null, null, 0, 10);
     assertEquals(searchResult.getNumEntities().intValue(), 0);
   }
 }

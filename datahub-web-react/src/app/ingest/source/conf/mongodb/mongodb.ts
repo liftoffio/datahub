@@ -1,8 +1,6 @@
 import { SourceConfig } from '../types';
 import mongodbLogo from '../../../../../images/mongodblogo.png';
 
-const baseUrl = window.location.origin;
-
 const placeholderRecipe = `\
 source:
     type: mongodb
@@ -19,18 +17,13 @@ source:
         enableSchemaInference: True
         useRandomSampling: True
         maxSchemaSize: 300
-sink: 
-    type: datahub-rest 
-    config: 
-        server: "${baseUrl}/api/gms"
-        # Add a secret in secrets Tab
-        token: "\${GMS_TOKEN}"`;
+`;
 
 const mongoConfig: SourceConfig = {
     type: 'mongodb',
     placeholderRecipe,
     displayName: 'MongoDB',
-    docsUrl: 'https://datahubproject.io/docs/metadata-ingestion/source_docs/mongodb/',
+    docsUrl: 'https://datahubproject.io/docs/generated/ingestion/sources/mongodb/',
     logoUrl: mongodbLogo,
 };
 

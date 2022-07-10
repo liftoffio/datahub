@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import * as QueryString from 'query-string';
 import { useHistory, useLocation, useParams } from 'react-router';
 import { message } from 'antd';
@@ -17,8 +17,9 @@ import { useGetSearchResultsForMultipleQuery } from '../../../../../../graphql/s
 import { GetSearchResultsParams, SearchResultsInterface } from './types';
 
 const Container = styled.div`
-    overflow: scroll;
-    height: 120;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
 `;
 
 // this extracts the response from useGetSearchResultsForMultipleQuery into a common interface other search endpoints can also produce
@@ -56,6 +57,8 @@ type Props = {
     fixedFilter?: FacetFilterInput | null;
     fixedQuery?: string | null;
     placeholderText?: string | null;
+    defaultShowFilters?: boolean;
+    defaultFilters?: Array<FacetFilterInput>;
     useGetSearchResults?: (params: GetSearchResultsParams) => {
         data: SearchResultsInterface | undefined | null;
         loading: boolean;
@@ -69,6 +72,8 @@ export const EmbeddedListSearch = ({
     fixedFilter,
     fixedQuery,
     placeholderText,
+    defaultShowFilters,
+    defaultFilters,
     useGetSearchResults = useWrappedSearchResults,
 }: Props) => {
     const history = useHistory();
@@ -88,7 +93,7 @@ export const EmbeddedListSearch = ({
         .filter((filter) => filter.field === ENTITY_FILTER_NAME)
         .map((filter) => filter.value.toUpperCase() as EntityType);
 
-    const [showFilters, setShowFilters] = useState(false);
+    const [showFilters, setShowFilters] = useState(defaultShowFilters || false);
 
     const { refetch } = useGetSearchResults({
         variables: {
@@ -155,6 +160,14 @@ export const EmbeddedListSearch = ({
     const toggleFilters = () => {
         setShowFilters(!showFilters);
     };
+
+    useEffect(() => {
+        if (defaultFilters) {
+            onChangeFilters(defaultFilters);
+        }
+        // only want to run once on page load
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Filter out the persistent filter values
     const filteredFilters = data?.facets?.filter((facet) => facet.field !== fixedFilter?.field) || [];

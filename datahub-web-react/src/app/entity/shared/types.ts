@@ -25,6 +25,11 @@ import {
     Health,
     Status,
     Deprecation,
+    DataPlatformInstance,
+    ParentContainersResult,
+    EntityRelationshipsResult,
+    ParentNodesResult,
+    SiblingProperties,
 } from '../../../types.generated';
 import { FetchedEntity } from '../../lineage/types';
 
@@ -52,12 +57,15 @@ export type GenericEntityProperties = {
     properties?: Maybe<{
         description?: Maybe<string>;
         qualifiedName?: Maybe<string>;
+        sourceUrl?: Maybe<string>;
+        sourceRef?: Maybe<string>;
     }>;
     globalTags?: Maybe<GlobalTags>;
     glossaryTerms?: Maybe<GlossaryTerms>;
     ownership?: Maybe<Ownership>;
     domain?: Maybe<Domain>;
     platform?: Maybe<DataPlatform>;
+    dataPlatformInstance?: Maybe<DataPlatformInstance>;
     customProperties?: Maybe<StringMapEntry[]>;
     institutionalMemory?: Maybe<InstitutionalMemory>;
     schemaMetadata?: Maybe<SchemaMetadata>;
@@ -73,9 +81,15 @@ export type GenericEntityProperties = {
     subTypes?: Maybe<SubTypes>;
     entityCount?: number;
     container?: Maybe<Container>;
-    health?: Maybe<Health>;
+    health?: Maybe<Array<Health>>;
     status?: Maybe<Status>;
     deprecation?: Maybe<Deprecation>;
+    parentContainers?: Maybe<ParentContainersResult>;
+    children?: Maybe<EntityRelationshipsResult>;
+    parentNodes?: Maybe<ParentNodesResult>;
+    isAChildren?: Maybe<EntityRelationshipsResult>;
+    siblings?: Maybe<SiblingProperties>;
+    siblingPlatforms?: Maybe<DataPlatform[]>;
 };
 
 export type GenericEntityUpdate = {

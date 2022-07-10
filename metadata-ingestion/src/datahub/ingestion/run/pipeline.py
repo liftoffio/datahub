@@ -2,12 +2,13 @@ import datetime
 import itertools
 import logging
 import uuid
-from math import log10
 from typing import Any, Dict, Iterable, List, Optional
 
 import click
-from pydantic import validator
+from pydantic import root_validator, validator
 
+from datahub.cli.cli_utils import get_url_and_token
+from datahub.configuration import config_loader
 from datahub.configuration.common import (
     ConfigModel,
     DynamicTypedConfig,
@@ -26,7 +27,7 @@ from datahub.ingestion.reporting.reporting_provider_registry import (
 from datahub.ingestion.sink.sink_registry import sink_registry
 from datahub.ingestion.source.source_registry import source_registry
 from datahub.ingestion.transformer.transform_registry import transform_registry
-from datahub.telemetry import telemetry
+from datahub.telemetry import stats, telemetry
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,8 @@ class PipelineConfig(ConfigModel):
         cls, v: Optional[str], values: Dict[str, Any], **kwargs: Any
     ) -> str:
         if v == "__DEFAULT_RUN_ID":
-            if values["source"] is not None:
-                if values["source"].type is not None:
+            if "source" in values:
+                if hasattr(values["source"], "type"):
                     source_type = values["source"].type
                     current_time = datetime.datetime.now().strftime("%Y_%m_%d-%H_%M_%S")
                     return f"{source_type}-{current_time}"
@@ -64,12 +65,31 @@ class PipelineConfig(ConfigModel):
             assert v is not None
             return v
 
+    @root_validator(pre=True)
+    def default_sink_is_datahub_rest(cls, values: Dict[str, Any]) -> Any:
+        if "sink" not in values:
+            gms_host, gms_token = get_url_and_token()
+            default_sink_config = {
+                "type": "datahub-rest",
+                "config": {
+                    "server": gms_host,
+                    "token": gms_token,
+                },
+            }
+            # resolve env variables if present
+            default_sink_config = config_loader.resolve_env_variables(
+                default_sink_config
+            )
+            values["sink"] = default_sink_config
+
+        return values
+
     @validator("datahub_api", always=True)
     def datahub_api_should_use_rest_sink_as_default(
         cls, v: Optional[DatahubClientConfig], values: Dict[str, Any], **kwargs: Any
     ) -> Optional[DatahubClientConfig]:
         if v is None:
-            if values["sink"].type is not None:
+            if "sink" in values and hasattr(values["sink"], "type"):
                 sink_type = values["sink"].type
                 if sink_type == "datahub-rest":
                     sink_config = values["sink"].config
@@ -123,7 +143,7 @@ class Pipeline:
 
         sink_type = self.config.sink.type
         sink_class = sink_registry.get(sink_type)
-        sink_config = self.config.sink.dict().get("config", {})
+        sink_config = self.config.sink.dict().get("config") or {}
         self.sink: Sink = sink_class.create(sink_config, self.ctx)
         logger.debug(f"Sink type:{self.config.sink.type},{sink_class} configured")
 
@@ -299,10 +319,18 @@ class Pipeline:
             {
                 "source_type": self.config.source.type,
                 "sink_type": self.config.sink.type,
-                "records_written": 10
-                ** int(log10(self.sink.get_report().records_written + 1)),
+                "records_written": stats.discretize(
+                    self.sink.get_report().records_written
+                ),
             },
+            self.ctx.graph,
         )
+
+    def _count_all_vals(self, d: Dict[str, List]) -> int:
+        result = 0
+        for val in d.values():
+            result += len(val)
+        return result
 
     def pretty_print_summary(self, warnings_as_failure: bool = False) -> int:
         click.echo()
@@ -311,12 +339,29 @@ class Pipeline:
         click.secho(f"Sink ({self.config.sink.type}) report:", bold=True)
         click.echo(self.sink.get_report().as_string())
         click.echo()
+        workunits_produced = self.source.get_report().workunits_produced
         if self.source.get_report().failures or self.sink.get_report().failures:
-            click.secho("Pipeline finished with failures", fg="bright_red", bold=True)
+            num_failures_source = self._count_all_vals(
+                self.source.get_report().failures
+            )
+            click.secho(
+                f"Pipeline finished with {num_failures_source} failures in source producing {workunits_produced} workunits",
+                fg="bright_red",
+                bold=True,
+            )
             return 1
         elif self.source.get_report().warnings or self.sink.get_report().warnings:
-            click.secho("Pipeline finished with warnings", fg="yellow", bold=True)
+            num_warn_source = self._count_all_vals(self.source.get_report().warnings)
+            click.secho(
+                f"Pipeline finished with {num_warn_source} warnings in source producing {workunits_produced} workunits",
+                fg="yellow",
+                bold=True,
+            )
             return 1 if warnings_as_failure else 0
         else:
-            click.secho("Pipeline finished successfully", fg="green", bold=True)
+            click.secho(
+                f"Pipeline finished successfully producing {workunits_produced} workunits",
+                fg="green",
+                bold=True,
+            )
             return 0
