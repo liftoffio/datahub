@@ -4,7 +4,7 @@
 
 # Home page
 # serveAsset action requires a path string
-GET           /                                                               controllers.Application.index(path="index.html")
+GET           /                                                               controllers.Application.index(path="index.html", request:Request)
 
 GET           /admin                                                          controllers.Application.healthcheck()
 GET           /health                                                         controllers.Application.healthcheck()
@@ -41,4 +41,4 @@ GET           /assets/*file                                                    c
 POST          /track                                                           controllers.TrackingController.track(request: Request)
 
 # Wildcard route accepts any routes and delegates to serveAsset which in turn serves the React Bundle
-GET           /*path                                                           controllers.Application.index(path)
+GET           /*path                                                           controllers.Application.index(path, request: Request)

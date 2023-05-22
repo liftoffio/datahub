@@ -9,46 +9,45 @@ import com.datahub.authentication.AuthenticationConstants;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linkedin.util.Pair;
 import com.typesafe.config.Config;
-
+import java.io.InputStream;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
-
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import javax.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import play.Environment;
 import play.http.HttpEntity;
+import play.libs.Json;
 import play.libs.ws.InMemoryBodyWritable;
 import play.libs.ws.StandaloneWSClient;
-import play.libs.Json;
 import play.libs.ws.ahc.StandaloneAhcWSClient;
 import play.mvc.Controller;
 import play.mvc.Http;
 import play.mvc.ResponseHeader;
 import play.mvc.Result;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
-import javax.inject.Inject;
-import java.io.InputStream;
 import play.mvc.Security;
 import play.shaded.ahc.org.asynchttpclient.AsyncHttpClient;
 import play.shaded.ahc.org.asynchttpclient.AsyncHttpClientConfig;
 import play.shaded.ahc.org.asynchttpclient.DefaultAsyncHttpClient;
 import play.shaded.ahc.org.asynchttpclient.DefaultAsyncHttpClientConfig;
 import utils.ConfigUtil;
-import java.time.Duration;
 
-import static auth.AuthUtils.ACTOR;
-import static auth.AuthUtils.SESSION_COOKIE_GMS_TOKEN_NAME;
+import static auth.AuthUtils.*;
 
 
 public class Application extends Controller {
   private final Logger _logger = LoggerFactory.getLogger(Application.class.getName());
   private final Config _config;
   private final StandaloneWSClient _ws;
+  @Inject
+  private AuthenticationController authenticationController;
   private final Environment _environment;
 
   @Inject
@@ -69,14 +68,10 @@ public class Application extends Controller {
   private Result serveAsset(@Nullable String path) {
     try {
       InputStream indexHtml = _environment.resourceAsStream("public/index.html");
-      return ok(indexHtml)
-              .withHeader("Cache-Control", "no-cache")
-              .as("text/html");
+      return ok(indexHtml).withHeader("Cache-Control", "no-cache").as("text/html");
     } catch (Exception e) {
       _logger.warn("Cannot load public/index.html resource. Static assets or assets jar missing?");
-      return notFound()
-              .withHeader("Cache-Control", "no-cache")
-              .as("text/html");
+      return notFound().withHeader("Cache-Control", "no-cache").as("text/html");
     }
   }
 
@@ -92,8 +87,14 @@ public class Application extends Controller {
    * @return {Result} response from serveAsset method
    */
   @Nonnull
-  public Result index(@Nullable String path) {
-    return serveAsset("");
+  public Result index(@Nullable String path, Http.Request request) {
+    if ("login".equalsIgnoreCase(path)) {
+      return serveAsset(path);
+    }
+    if (hasValidSessionCookie(request)) {
+      return serveAsset("");
+    }
+    return authenticationController.authenticate(request);
   }
 
   /**
@@ -102,23 +103,18 @@ public class Application extends Controller {
    * TODO: Investigate using mutual SSL authentication to call Metadata Service.
    */
   @Security.Authenticated(Authenticator.class)
-  public CompletableFuture<Result> proxy(String path, Http.Request request) throws ExecutionException, InterruptedException {
+  public CompletableFuture<Result> proxy(String path, Http.Request request)
+      throws ExecutionException, InterruptedException {
     final String authorizationHeaderValue = getAuthorizationHeaderValueToProxy(request);
     final String resolvedUri = mapPath(request.uri());
 
-    final String metadataServiceHost = ConfigUtil.getString(
-        _config,
-        ConfigUtil.METADATA_SERVICE_HOST_CONFIG_PATH,
+    final String metadataServiceHost = ConfigUtil.getString(_config, ConfigUtil.METADATA_SERVICE_HOST_CONFIG_PATH,
         ConfigUtil.DEFAULT_METADATA_SERVICE_HOST);
-    final int metadataServicePort = ConfigUtil.getInt(
-        _config,
-        ConfigUtil.METADATA_SERVICE_PORT_CONFIG_PATH,
+    final int metadataServicePort = ConfigUtil.getInt(_config, ConfigUtil.METADATA_SERVICE_PORT_CONFIG_PATH,
         ConfigUtil.DEFAULT_METADATA_SERVICE_PORT);
-    final boolean metadataServiceUseSsl = ConfigUtil.getBoolean(
-        _config,
-        ConfigUtil.METADATA_SERVICE_USE_SSL_CONFIG_PATH,
-        ConfigUtil.DEFAULT_METADATA_SERVICE_USE_SSL
-    );
+    final boolean metadataServiceUseSsl =
+        ConfigUtil.getBoolean(_config, ConfigUtil.METADATA_SERVICE_USE_SSL_CONFIG_PATH,
+            ConfigUtil.DEFAULT_METADATA_SERVICE_USE_SSL);
 
     // TODO: Fully support custom internal SSL.
     final String protocol = metadataServiceUseSsl ? "https" : "http";
@@ -126,13 +122,12 @@ public class Application extends Controller {
     final Map<String, List<String>> headers = request.getHeaders().toMap();
 
     if (headers.containsKey(Http.HeaderNames.HOST) && !headers.containsKey(Http.HeaderNames.X_FORWARDED_HOST)) {
-        headers.put(Http.HeaderNames.X_FORWARDED_HOST, headers.get(Http.HeaderNames.HOST));
+      headers.put(Http.HeaderNames.X_FORWARDED_HOST, headers.get(Http.HeaderNames.HOST));
     }
 
     return _ws.url(String.format("%s://%s:%s%s", protocol, metadataServiceHost, metadataServicePort, resolvedUri))
         .setMethod(request.method())
-        .setHeaders(headers
-            .entrySet()
+        .setHeaders(headers.entrySet()
             .stream()
             // Remove X-DataHub-Actor to prevent malicious delegation.
             .filter(entry -> !AuthenticationConstants.LEGACY_X_DATAHUB_ACTOR_HEADER.equalsIgnoreCase(entry.getKey()))
@@ -141,11 +136,11 @@ public class Application extends Controller {
             .filter(entry -> !Http.HeaderNames.AUTHORIZATION.equals(entry.getKey()))
             // Remove Host s.th. service meshes do not route to wrong host
             .filter(entry -> !Http.HeaderNames.HOST.equals(entry.getKey()))
-            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue))
-        )
+            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)))
         .addHeader(Http.HeaderNames.AUTHORIZATION, authorizationHeaderValue)
         .addHeader(AuthenticationConstants.LEGACY_X_DATAHUB_ACTOR_HEADER, getDataHubActorHeader(request))
-        .setBody(new InMemoryBodyWritable(ByteString.fromByteBuffer(request.body().asBytes().asByteBuffer()), "application/json"))
+        .setBody(new InMemoryBodyWritable(ByteString.fromByteBuffer(request.body().asBytes().asByteBuffer()),
+            "application/json"))
         .setRequestTimeout(Duration.ofSeconds(120))
         .execute()
         .thenApply(apiResponse -> {
@@ -156,9 +151,11 @@ public class Application extends Controller {
               .filter(entry -> !Http.HeaderNames.CONTENT_TYPE.equals(entry.getKey()))
               .map(entry -> Pair.of(entry.getKey(), String.join(";", entry.getValue())))
               .collect(Collectors.toMap(Pair::getFirst, Pair::getSecond)));
-          final HttpEntity body = new HttpEntity.Strict(apiResponse.getBodyAsBytes(), Optional.ofNullable(apiResponse.getContentType()));
+          final HttpEntity body =
+              new HttpEntity.Strict(apiResponse.getBodyAsBytes(), Optional.ofNullable(apiResponse.getContentType()));
           return new Result(header, body);
-        }).toCompletableFuture();
+        })
+        .toCompletableFuture();
   }
 
   /**
@@ -262,8 +259,7 @@ public class Application extends Controller {
     system.registerOnTermination(() -> System.exit(0));
     Materializer materializer = ActorMaterializer.create(system);
     AsyncHttpClientConfig asyncHttpClientConfig =
-        new DefaultAsyncHttpClientConfig.Builder()
-            .setDisableUrlEncodingForBoundRequests(true)
+        new DefaultAsyncHttpClientConfig.Builder().setDisableUrlEncodingForBoundRequests(true)
             .setMaxRequestRetry(0)
             .setShutdownQuietPeriod(0)
             .setShutdownTimeout(0)
