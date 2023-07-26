@@ -6,16 +6,31 @@ import auth.JAASConfigs;
 import auth.NativeAuthenticationConfigs;
 import auth.sso.SsoManager;
 import client.AuthServiceClient;
+import com.datahub.authentication.Authentication;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.linkedin.common.AuditStamp;
 import com.linkedin.common.urn.CorpuserUrn;
 import com.linkedin.common.urn.Urn;
+import com.linkedin.entity.Entity;
+import com.linkedin.entity.client.EntityClient;
+import com.linkedin.events.metadata.ChangeType;
+import com.linkedin.identity.CorpUserInfo;
+import com.linkedin.identity.CorpUserStatus;
+import com.linkedin.metadata.Constants;
+import com.linkedin.metadata.aspect.CorpUserAspect;
+import com.linkedin.metadata.aspect.CorpUserAspectArray;
+import com.linkedin.metadata.snapshot.CorpUserSnapshot;
+import com.linkedin.metadata.snapshot.Snapshot;
+import com.linkedin.metadata.utils.GenericRecordUtils;
+import com.linkedin.mxe.MetadataChangeProposal;
 import com.typesafe.config.Config;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import javax.annotation.Nonnull;
 import javax.inject.Inject;
+import lombok.SneakyThrows;
 import org.apache.commons.lang3.StringUtils;
 import org.pac4j.core.client.Client;
 import org.pac4j.core.exception.http.FoundAction;
@@ -33,18 +48,9 @@ import play.mvc.Result;
 import play.mvc.Results;
 import security.AuthenticationManager;
 
-import static auth.AuthUtils.DEFAULT_ACTOR_URN;
-import static auth.AuthUtils.EMAIL;
-import static auth.AuthUtils.FULL_NAME;
-import static auth.AuthUtils.INVITE_TOKEN;
-import static auth.AuthUtils.LOGIN_ROUTE;
-import static auth.AuthUtils.PASSWORD;
-import static auth.AuthUtils.RESET_TOKEN;
-import static auth.AuthUtils.TITLE;
-import static auth.AuthUtils.USER_NAME;
-import static auth.AuthUtils.createActorCookie;
-import static auth.AuthUtils.createSessionMap;
-import static org.pac4j.core.client.IndirectClient.ATTEMPTED_AUTHENTICATION_SUFFIX;
+import static auth.AuthUtils.*;
+import static auth.CookieConfigs.*;
+import static org.pac4j.core.client.IndirectClient.*;
 
 
 // TODO add logging.
@@ -61,6 +67,8 @@ public class AuthenticationController extends Controller {
     private final JAASConfigs _jaasConfigs;
     private final NativeAuthenticationConfigs _nativeAuthenticationConfigs;
     private final boolean _verbose;
+    private EntityClient _entityClient;
+    private Authentication _systemAuthentication;
 
     @Inject
     private org.pac4j.core.config.Config _ssoConfig;
@@ -75,11 +83,13 @@ public class AuthenticationController extends Controller {
     AuthServiceClient _authClient;
 
     @Inject
-    public AuthenticationController(@Nonnull Config configs) {
+    public AuthenticationController(@Nonnull Config configs, @Nonnull EntityClient entityClient, @Nonnull Authentication authentication) {
         _cookieConfigs = new CookieConfigs(configs);
         _jaasConfigs = new JAASConfigs(configs);
         _nativeAuthenticationConfigs = new NativeAuthenticationConfigs(configs);
         _verbose = configs.hasPath(AUTH_VERBOSE_LOGGING) && configs.getBoolean(AUTH_VERBOSE_LOGGING);
+        _entityClient = entityClient;
+        _systemAuthentication = authentication;
     }
 
     /**
@@ -100,6 +110,14 @@ public class AuthenticationController extends Controller {
             return Results.redirect(redirectPath);
         }
 
+        Optional<String> email = request.header("X-User-Email");
+        if (email.isPresent()) {
+            CorpuserUrn userUrn = new CorpuserUrn(email.get());
+            tryProvision(userUrn);
+            final String accessToken = _authClient.generateSessionTokenForUser(userUrn.getId());
+            return createSession(userUrn.toString(), accessToken);
+        }
+
         // 1. If SSO is enabled, redirect to IdP if not authenticated.
         if (_ssoManager.isSsoEnabled()) {
             return redirectToIdentityProvider(request, redirectPath).orElse(
@@ -113,18 +131,7 @@ public class AuthenticationController extends Controller {
                 LOGIN_ROUTE + String.format("?%s=%s", AUTH_REDIRECT_URI_PARAM, encodeRedirectUri(redirectPath)));
         }
 
-        // 3. If no auth enabled, fallback to using default user account & redirect.
-        // Generate GMS session token, TODO:
-        final String accessToken = _authClient.generateSessionTokenForUser(DEFAULT_ACTOR_URN.getId());
-        return Results.redirect(redirectPath).withSession(createSessionMap(DEFAULT_ACTOR_URN.toString(), accessToken))
-            .withCookies(
-                createActorCookie(
-                    DEFAULT_ACTOR_URN.toString(),
-                    _cookieConfigs.getTtlInHours(),
-                    _cookieConfigs.getAuthCookieSameSite(),
-                    _cookieConfigs.getAuthCookieSecure()
-                )
-            );
+        return new Result(Http.Status.FORBIDDEN);
     }
 
     /**
@@ -351,5 +358,36 @@ public class AuthenticationController extends Controller {
                 )
             );
 
+    }
+
+    @SneakyThrows
+    private void tryProvision(CorpuserUrn urn) {
+        CorpUserSnapshot corpUserSnapshot = new CorpUserSnapshot();
+        corpUserSnapshot.setUrn(urn);
+        CorpUserInfo corpUserInfo = new CorpUserInfo();
+        corpUserInfo.setActive(true);
+        corpUserInfo.setEmail(urn.getUsernameEntity());
+        CorpUserAspectArray aspects = new CorpUserAspectArray();
+        aspects.add(CorpUserAspect.create(corpUserInfo));
+        corpUserSnapshot.setAspects(aspects);
+        Entity corpUser = _entityClient.get(corpUserSnapshot.getUrn(), _systemAuthentication);
+        CorpUserSnapshot existingUserSnapshot = corpUser.getValue().getCorpUserSnapshot();
+        if (existingUserSnapshot.getAspects().size() <= 1) {
+            Entity newEntity = new Entity();
+            newEntity.setValue(Snapshot.create(corpUserSnapshot));
+            _entityClient.update(newEntity, _systemAuthentication);
+        }
+        MetadataChangeProposal proposal = new MetadataChangeProposal();
+        proposal.setEntityUrn(urn);
+        proposal.setEntityType(Constants.CORP_USER_ENTITY_NAME);
+        proposal.setAspectName(Constants.CORP_USER_STATUS_ASPECT_NAME);
+        CorpUserStatus status = new CorpUserStatus()
+            .setStatus(Constants.CORP_USER_STATUS_ACTIVE)
+            .setLastModified(new AuditStamp()
+                .setActor(Urn.createFromString(Constants.SYSTEM_ACTOR))
+                .setTime(System.currentTimeMillis()));
+        proposal.setAspect(GenericRecordUtils.serializeAspect(status));
+        proposal.setChangeType(ChangeType.UPSERT);
+        _entityClient.ingestProposal(proposal, _systemAuthentication);
     }
 }

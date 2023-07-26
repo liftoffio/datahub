@@ -41,8 +41,7 @@ import play.shaded.ahc.org.asynchttpclient.DefaultAsyncHttpClientConfig;
 import utils.ConfigUtil;
 import java.time.Duration;
 
-import static auth.AuthUtils.ACTOR;
-import static auth.AuthUtils.SESSION_COOKIE_GMS_TOKEN_NAME;
+import static auth.AuthUtils.*;
 
 
 public class Application extends Controller {
@@ -50,12 +49,14 @@ public class Application extends Controller {
   private final Config _config;
   private final StandaloneWSClient _ws;
   private final Environment _environment;
+  private final AuthenticationController _authenticationController;
 
   @Inject
-  public Application(Environment environment, @Nonnull Config config) {
+  public Application(Environment environment, @Nonnull AuthenticationController authenticationController, @Nonnull Config config) {
     _config = config;
     _ws = createWsClient();
     _environment = environment;
+    _authenticationController = authenticationController;
   }
 
   /**
@@ -92,8 +93,14 @@ public class Application extends Controller {
    * @return {Result} response from serveAsset method
    */
   @Nonnull
-  public Result index(@Nullable String path) {
-    return serveAsset("");
+  public Result index(@Nullable String path, Http.Request request) {
+    if ("login".equalsIgnoreCase(path)) {
+      return serveAsset(path);
+    }
+    if (hasValidSessionCookie(request)) {
+      return serveAsset("");
+    }
+    return _authenticationController.authenticate(request);
   }
 
   /**
